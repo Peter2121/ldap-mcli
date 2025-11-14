@@ -15,12 +15,6 @@ const (
 	GRP_TYPE_MAIL string = "Mail"
 )
 
-var defaultGroupMailEnabledServices = []string{
-	"deliver",
-	"mail",
-	"displayedInGlobalAddressBook",
-}
-
 type (
 	// groupsMailManager implements groupsMailManager.
 	groupsMailManager struct {
@@ -150,7 +144,7 @@ func (gm *groupsMailManager) SetDefaults(group *GroupMail) {
 		group.Status = GroupStatusActive
 	}
 	if len(group.EnabledServices) == 0 {
-		group.EnabledServices = append([]string{}, defaultGroupMailEnabledServices...)
+		group.EnabledServices = append([]string{}, gm.Client.Group.DefaultEnabledServices...)
 	}
 	if len(group.MailAliases) == 0 {
 		group.MailAliases = []string{""}
@@ -270,15 +264,15 @@ func (gm *groupsMailManager) RemoveMembers(cn, ou string, memberIds []string) *e
 func (gm *groupsMailManager) GetDN(cn, _ string) string {
 	// GroupMail does not support ou as mailList objectClass does not provide such attribute
 	if cn != "" {
-		return fmt.Sprintf("%s=%s,%s", CommonNameAttr, cn, gm.Client.Config.GroupBaseDN)
+		return fmt.Sprintf("%s=%s,%s", CommonNameAttr, cn, gm.Client.ConfigLdap.GroupBaseDN)
 	} else {
-		return gm.Client.Config.GroupBaseDN
+		return gm.Client.ConfigLdap.GroupBaseDN
 	}
 }
 
 // getUniqueMemberDn returns the formatted unique member domain name
 func (gm *groupsMailManager) GetUniqueMemberDn(memberId string) string {
-	return fmt.Sprintf("%s=%s,%s", userIdAttr, memberId, gm.Client.Config.UserBaseDN)
+	return fmt.Sprintf("%s=%s,%s", userIdAttr, memberId, gm.Client.ConfigLdap.UserBaseDN)
 }
 
 // GetSearchRequest returns a ldap search request
@@ -348,7 +342,7 @@ func (gm *groupsMailManager) ModifyGroup(group, old_group GroupMail) *errors.Err
 		return errv
 	}
 	if (len(group.EnabledServices) == 1) && (group.EnabledServices[0] == DEFAULT) {
-		group.EnabledServices = append([]string{}, defaultGroupMailEnabledServices...)
+		group.EnabledServices = append([]string{}, gm.Client.Group.DefaultEnabledServices...)
 	}
 	d, errcd := diff.NewDiffer(diff.SliceOrdering(false))
 	if errcd != nil {

@@ -22,12 +22,6 @@ const (
 	UserStatusRevoked  = "Revoked"
 	UserStatusDeleted  = "Deleted"
 
-	// TODO: take it from config
-	defaultUserQuota     = "2147483648"
-	defaultBaseDirectory = "/var/vmail"
-	defaultDataFolder    = "vmail1"
-	defaultMailboxFormat = "maildir"
-
 	userAlreadyExistsMsg   = "User with uid = '%s' already exists"
 	userNotFoundMsg        = "User with %s = '%s' was not found"
 	invalidStatusErrMsg    = "Invalid status '%s'. Valid status's are %v"
@@ -36,56 +30,11 @@ const (
 )
 
 var (
-	ldapDnAttribute = MailAttr // TODO: take from User struct tag
-
-	defaultObjectClassesUser = []string{
-		"person",
-		"organizationalPerson",
-		"inetOrgPerson",
-		"top",
-		"mailUser",
-		"shadowAccount",
-	}
-
 	validStatusList = []string{
 		UserStatusActive,
 		UserStatusDisabled,
 		UserStatusRevoked,
 		UserStatusDeleted,
-	}
-
-	defaultUserEnabledServices = []string{
-		"deliver",
-		"displayedInGlobalAddressBook",
-		"doveadm",
-		"dsync",
-		"forward",
-		"imap",
-		"imapsecured",
-		"imaptls",
-		"indexer-worker",
-		"internal",
-		"lda",
-		"lib-storage",
-		"lmtp",
-		"mail",
-		"managesieve",
-		"managesievesecured",
-		"managesievetls",
-		"quota-status",
-		"recipientbcc",
-		"senderbcc",
-		"shadowaddress",
-		"sieve",
-		"sievesecured",
-		"sievetls",
-		"smtp",
-		"smtpsecured",
-		"smtptls",
-		"sogo",
-		"sogoactivesync",
-		"sogocalendar",
-		"sogowebmail",
 	}
 )
 
@@ -390,14 +339,14 @@ func (um *usersManager) SetNewPassword(uid, newPassword string) (string, *errors
 // getDN returns the formatted LDAP user domain name.
 // TODO: add ou
 func (um *usersManager) getDN(attr string, uid string) string {
-	return fmt.Sprintf("%s=%s,%s", attr, uid, um.Client.Config.UserBaseDN)
+	return fmt.Sprintf("%s=%s,%s", attr, uid, um.Client.ConfigLdap.UserBaseDN)
 }
 
 // getUsersSearchRequest returns a ldap search request to get a list of users.
 // The list of users retrieved depends on the userSearchFilter.
 func (um *usersManager) getUsersSearchRequest(userSearchFilter string) *ldap.SearchRequest {
 	return &ldap.SearchRequest{
-		BaseDN:       um.Client.Config.UserBaseDN,
+		BaseDN:       um.Client.ConfigLdap.UserBaseDN,
 		Scope:        ldap.ScopeWholeSubtree,
 		DerefAliases: ldap.NeverDerefAliases,
 		SizeLimit:    0,
@@ -414,7 +363,7 @@ func (um *usersManager) getUsersSearchRequest(userSearchFilter string) *ldap.Sea
 func (um *usersManager) getUserSearchRequest(srchAttr, srchStr string) *ldap.SearchRequest {
 	srchFilter := fmt.Sprintf(UserSearchFilter, srchAttr, srchStr)
 	return &ldap.SearchRequest{
-		BaseDN:       um.Client.Config.UserBaseDN,
+		BaseDN:       um.Client.ConfigLdap.UserBaseDN,
 		Scope:        ldap.ScopeWholeSubtree,
 		DerefAliases: ldap.NeverDerefAliases,
 		SizeLimit:    0,
@@ -429,7 +378,7 @@ func (um *usersManager) getUserSearchRequest(srchAttr, srchStr string) *ldap.Sea
 // getAddRequest returns a ldap add request to add a new user entry.
 func (um *usersManager) getAddRequest(user User) *ldap.AddRequest {
 	ar := ldap.NewAddRequest(um.getDN(MailAttr, user.Mail), nil)
-	ar.Attribute(objectClassAttr, defaultObjectClassesUser)
+	ar.Attribute(objectClassAttr, um.Client.ObjectClassesMailUser)
 	ar.Attribute(userIdAttr, []string{user.Uid})
 	ar.Attribute(CommonNameAttr, []string{user.Cn})
 	ar.Attribute(familyNameAttr, []string{user.Sn})
@@ -440,7 +389,7 @@ func (um *usersManager) getAddRequest(user User) *ldap.AddRequest {
 	if len(user.EnabledServices) != 0 {
 		ar.Attribute(enabledServiceAttr, user.EnabledServices)
 	} else {
-		ar.Attribute(enabledServiceAttr, defaultUserEnabledServices)
+		ar.Attribute(enabledServiceAttr, um.Client.User.DefaultEnabledServices)
 	}
 	if len(user.MailAliases) != 0 {
 		ar.Attribute(shadowAddressAttr, user.MailAliases)
@@ -473,7 +422,7 @@ func (um *usersManager) getNewUserHomeDir(user User) (string, string) {
 	user_folder := ""
 	ts := time.Now()
 	current_timestamp = fmt.Sprintf("%d.%02d.%02d.%02d.%02d.%02d", ts.Year(), ts.Month(), ts.Day(), ts.Hour(), ts.Minute(), ts.Second())
-	basedir := fmt.Sprintf("%s/%s/%s", defaultBaseDirectory, defaultDataFolder, domain_name)
+	basedir := fmt.Sprintf("%s/%s/%s", um.Client.User.BaseDirectory, um.Client.User.DataFolder, domain_name)
 	for i := 0; i < 3 && i < ind; i++ {
 		subdir := user.Mail[i : i+1]
 		if subdir == "@" { // Normally never happens
@@ -481,7 +430,7 @@ func (um *usersManager) getNewUserHomeDir(user User) (string, string) {
 		}
 		user_folder = fmt.Sprintf("%s/%s", user_folder, subdir)
 	}
-	return fmt.Sprintf("%s%s/%s-%s/", basedir, user_folder, user_name, current_timestamp), fmt.Sprintf("%s/%s%s/", defaultDataFolder, domain_name, user_folder)
+	return fmt.Sprintf("%s%s/%s-%s/", basedir, user_folder, user_name, current_timestamp), fmt.Sprintf("%s/%s%s/", um.Client.User.DataFolder, domain_name, user_folder)
 }
 
 // getPasswordModifyRequest returns a ldap password modify request.
@@ -495,7 +444,7 @@ func (um *usersManager) getPasswordModifyRequest(attr, uid, oldPassword, newPass
 
 // getDeleteRequest return a ldap delete request.
 func (um *usersManager) getDeleteRequest(attr, uid string) (*ldap.DelRequest, *errors.Error) {
-	if attr == ldapDnAttribute {
+	if attr == um.Client.UserDnAttribute {
 		return ldap.NewDelRequest(um.getDN(attr, uid), nil), nil
 	} else {
 		sr := um.getUserSearchRequest(attr, uid)
@@ -563,7 +512,7 @@ func (um *usersManager) GetModifyRequest(attr, uid string) *ldap.ModifyRequest {
 
 func (um *usersManager) ModifyUser(user, old_user User) *errors.Error {
 	if (len(user.EnabledServices) == 1) && (user.EnabledServices[0] == DEFAULT) {
-		user.EnabledServices = append([]string{}, defaultUserEnabledServices...)
+		user.EnabledServices = append([]string{}, um.Client.User.DefaultEnabledServices...)
 	}
 	d, errcd := diff.NewDiffer(diff.SliceOrdering(false))
 	if errcd != nil {
@@ -627,12 +576,14 @@ func (um *usersManager) ModifyUser(user, old_user User) *errors.Error {
 			}
 		case userPasswordAttr:
 			password := ch.To.(string)
-			if errpasswd := um.validatePassword(password); errpasswd != nil {
-				return errpasswd
-			} else {
-				switch ch.Type {
-				case diff.UPDATE:
-					attrs_to_replace[userPasswordAttr] = password
+			if len(password) > 0 {
+				if errpasswd := um.validatePassword(password); errpasswd != nil {
+					return errpasswd
+				} else {
+					switch ch.Type {
+					case diff.UPDATE:
+						attrs_to_replace[userPasswordAttr] = password
+					}
 				}
 			}
 		case statusAttr:
@@ -746,20 +697,20 @@ func (um *usersManager) SetDefaults(user *User) {
 		user.Status = UserStatusActive
 	}
 	if len(user.EnabledServices) == 0 {
-		user.EnabledServices = append([]string{}, defaultUserEnabledServices...)
+		user.EnabledServices = append([]string{}, um.Client.User.DefaultEnabledServices...)
 	}
 	if len(user.MailAliases) == 0 {
 		user.MailAliases = []string{""}
 	}
 	if user.HomeDirectory == "" {
 		user.HomeDirectory, user.MailMessageStore = um.getNewUserHomeDir(*user)
-		user.StorageBaseDirectory = defaultBaseDirectory
+		user.StorageBaseDirectory = um.Client.User.BaseDirectory
 	}
 	if user.MailboxFormat == "" {
-		user.MailboxFormat = defaultMailboxFormat
+		user.MailboxFormat = um.Client.User.MailboxFormat
 	}
 	if user.MailQuota == "" {
-		user.MailQuota = defaultUserQuota
+		user.MailQuota = strconv.Itoa(um.Client.User.DefaultUserQuota)
 	}
 }
 

@@ -261,19 +261,19 @@ func (gm *groupsSecManager) RemoveMembers(cn, ou string, memberIds []string) *er
 func (gm *groupsSecManager) GetDN(cn, ou string) string {
 	if cn != "" && ou != "" {
 		return fmt.Sprintf("%s=%s,%s=%s,%s", CommonNameAttr, cn, OrganizationalUnitAttr, ou,
-			gm.Client.Config.GroupBaseDN)
+			gm.Client.ConfigLdap.GroupBaseDN)
 	} else if cn != "" {
-		return fmt.Sprintf("%s=%s,%s", CommonNameAttr, cn, gm.Client.Config.GroupBaseDN)
+		return fmt.Sprintf("%s=%s,%s", CommonNameAttr, cn, gm.Client.ConfigLdap.GroupBaseDN)
 	} else if ou != "" {
-		return fmt.Sprintf("%s=%s,%s", OrganizationalUnitAttr, ou, gm.Client.Config.GroupBaseDN)
+		return fmt.Sprintf("%s=%s,%s", OrganizationalUnitAttr, ou, gm.Client.ConfigLdap.GroupBaseDN)
 	} else {
-		return gm.Client.Config.GroupBaseDN
+		return gm.Client.ConfigLdap.GroupBaseDN
 	}
 }
 
 // getUniqueMemberDn returns the formatted unique member domain name
 func (gm *groupsSecManager) GetUniqueMemberDn(memberId string) string {
-	return fmt.Sprintf("%s=%s,%s", userIdAttr, memberId, gm.Client.Config.UserBaseDN)
+	return fmt.Sprintf("%s=%s,%s", userIdAttr, memberId, gm.Client.ConfigLdap.UserBaseDN)
 }
 
 // GetSearchRequest returns a ldap search request

@@ -63,21 +63,43 @@ var (
 )
 
 type (
-	// Config represents LDAP connection details.
-	Config struct {
-		Protocol     string `json:"protocol" yaml:"protocol" mapstructure:"LDAP_PROTOCOL" required:"true"`
-		Hostname     string `json:"hostname" yaml:"hostname" mapstructure:"LDAP_HOSTNAME" required:"true"`
-		Port         string `json:"port" yaml:"port" mapstructure:"LDAP_PORT" required:"true"`
-		BaseDN       string `json:"baseDN" yaml:"baseDN" mapstructure:"LDAP_BASE_DN" required:"true"`
-		UserBaseDN   string `json:"userBaseDN" yaml:"userBaseDN" mapstructure:"LDAP_USER_BASE_DN" required:"true"`
-		GroupBaseDN  string `json:"groupBaseDN" yaml:"groupBaseDN" mapstructure:"LDAP_GROUP_BASE_DN" required:"true"`
-		BindUser     string `json:"bindUser" required:"true"`
-		BindPassword string `json:"bindPassword" required:"true"`
+	// ConfigLdap represents LDAP connection details.
+	ConfigLdap struct {
+		Protocol               string   `json:"protocol" yaml:"protocol" mapstructure:"LDAP_PROTOCOL" required:"true"`
+		Hostname               string   `json:"hostname" yaml:"hostname" mapstructure:"LDAP_HOSTNAME" required:"true"`
+		Port                   string   `json:"port" yaml:"port" mapstructure:"LDAP_PORT" required:"true"`
+		BaseDN                 string   `json:"baseDN" yaml:"baseDN" mapstructure:"LDAP_BASE_DN" required:"true"`
+		UserBaseDN             string   `json:"userBaseDN" yaml:"userBaseDN" mapstructure:"LDAP_USER_BASE_DN" required:"true"`
+		GroupBaseDN            string   `json:"groupBaseDN" yaml:"groupBaseDN" mapstructure:"LDAP_GROUP_BASE_DN" required:"true"`
+		BindUser               string   `json:"bindUser" required:"true"`
+		BindPassword           string   `json:"bindPassword" required:"true"`
+		UserDnAttribute        string   `json:"user_dn_attr" required:"true"`
+		ObjectClassesMailUser  []string `json:"object_classes_mail_user" required:"true"`
+		ObjectClassesMailGroup []string `json:"object_classes_mail_group" required:"true"`
+		ObjectClassesSecGroup  []string `json:"object_classes_sec_group" required:"true"`
 	}
 
-	// Client represents the development ldap client.
+	ConfigMailUser struct {
+		DefaultUserQuota       int      `json:"default_user_quota"` // 2147483648
+		BaseDirectory          string   `json:"base_directory"`     // /var/vmail
+		DataFolder             string   `json:"data_folder"`        // vmail1
+		MailboxFormat          string   `json:"mailbox_format"`     // maildir
+		DefaultEnabledServices []string `json:"default_enabled_services"`
+	}
+
+	ConfigMailGroup struct {
+		DefaultEnabledServices []string `json:"default_enabled_services"`
+	}
+
+	ConfigMail struct {
+		User  ConfigMailUser  `json:"config_user"`
+		Group ConfigMailGroup `json:"config_group"`
+	}
+
+	// Client represents the ldap client.
 	Client struct {
-		Config
+		ConfigLdap
+		ConfigMail
 		ldapClient  ldap.Client
 		unitTesting bool
 
@@ -94,14 +116,15 @@ type (
 
 // NewClient returns a default ldap client.
 // You can override some default configuration using ClientOption.
-func NewClient(config *Config, opts ...ClientOption) *Client {
+func NewClient(ldap_config *ConfigLdap, mail_config *ConfigMail, opts ...ClientOption) *Client {
 	c := &Client{
 		ldapClient: &ldap.Conn{},
-		Config:     *config,
+		ConfigLdap: *ldap_config,
+		ConfigMail: *mail_config,
 	}
 
 	// setting default protocol
-	c = c.SetProtocol(config.Protocol)
+	c = c.SetProtocol(ldap_config.Protocol)
 
 	// supported interfaces
 	c.OrganizationalUnits = &organizationalUnitsManager{Client: c}
@@ -118,29 +141,29 @@ func NewClient(config *Config, opts ...ClientOption) *Client {
 // SetProtocol sets the protocol in the Client Config.
 func (c *Client) SetProtocol(protocol string) *Client {
 	if slice.EntryExists(validProtocols, protocol) {
-		c.Config.Protocol = protocol
+		c.ConfigLdap.Protocol = protocol
 	} else {
-		c.Config.Protocol = ProtocolLdaps
+		c.ConfigLdap.Protocol = ProtocolLdaps
 	}
 	return c
 }
 
 // SetHostname sets the hostname in the Client Config.
 func (c *Client) SetHostname(hostname string) *Client {
-	c.Config.Hostname = hostname
+	c.ConfigLdap.Hostname = hostname
 	return c
 }
 
 // SetPort sets the LDAP server port in the Config.
 func (c *Client) SetPort(port string) *Client {
-	c.Config.Port = port
+	c.ConfigLdap.Port = port
 	return c
 }
 
 // SetBindCredentials sets the LDAP basic authentication/bind credentials for LDAP in the config.
 func (c *Client) SetBindCredentials(bindUser, bindPassword string) *Client {
-	c.Config.BindUser = bindUser
-	c.Config.BindPassword = bindPassword
+	c.ConfigLdap.BindUser = bindUser
+	c.ConfigLdap.BindPassword = bindPassword
 	return c
 }
 
@@ -258,7 +281,7 @@ func (c *Client) connect() *errors.Error {
 		return cErr
 	}
 
-	ldapUrl := fmt.Sprintf(ldapUrlFormat, c.Config.Protocol, c.Config.Hostname, c.Config.Port)
+	ldapUrl := fmt.Sprintf(ldapUrlFormat, c.ConfigLdap.Protocol, c.ConfigLdap.Hostname, c.ConfigLdap.Port)
 	logger.Debug(fmt.Sprintf(connectionMsg, ldapUrl))
 
 	if !c.unitTesting {
@@ -277,7 +300,7 @@ func (c *Client) connect() *errors.Error {
 
 // validate validates the ldap client configuration.
 func (c *Client) validate() *errors.Error {
-	if cErr := config.Validate(&c.Config); cErr != nil {
+	if cErr := config.Validate(&c.ConfigLdap); cErr != nil {
 		return errors.BadRequestError(cErr.Message)
 	}
 	return nil
@@ -286,10 +309,10 @@ func (c *Client) validate() *errors.Error {
 // dial creates a new connection with an LDAP server based on the client Config.
 func (c *Client) dial() *errors.Error {
 	var err error
-	if c.Config.Protocol == "ldap" {
-		c.ldapClient, err = ldap.Dial("tcp", fmt.Sprintf("%s:%s", c.Config.Hostname, c.Config.Port))
+	if c.ConfigLdap.Protocol == "ldap" {
+		c.ldapClient, err = ldap.Dial("tcp", fmt.Sprintf("%s:%s", c.ConfigLdap.Hostname, c.ConfigLdap.Port))
 	} else {
-		c.ldapClient, err = ldap.DialTLS("tcp", fmt.Sprintf("%s:%s", c.Config.Hostname, c.Config.Port), nil)
+		c.ldapClient, err = ldap.DialTLS("tcp", fmt.Sprintf("%s:%s", c.ConfigLdap.Hostname, c.ConfigLdap.Port), nil)
 	}
 	if err != nil {
 		return c.handleLdapError(err)
@@ -299,7 +322,7 @@ func (c *Client) dial() *errors.Error {
 
 // bind authenticates to an LDAP server using the bind credentials set in the client Config.
 func (c *Client) bind() *errors.Error {
-	if err := c.ldapClient.Bind(c.Config.BindUser, c.Config.BindPassword); err != nil {
+	if err := c.ldapClient.Bind(c.ConfigLdap.BindUser, c.ConfigLdap.BindPassword); err != nil {
 		return c.handleLdapError(err)
 	}
 	return nil

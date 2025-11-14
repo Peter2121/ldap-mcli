@@ -37,7 +37,7 @@ func (oum *organizationalUnitsManager) GetAll() ([]string, *errors.Error) {
 // getSearchRequest returns a ldap search request to get all organization units.
 func (oum *organizationalUnitsManager) getSearchRequest() *ldap.SearchRequest {
 	return ldap.NewSearchRequest(
-		oum.Client.Config.GroupBaseDN,
+		oum.Client.ConfigLdap.GroupBaseDN,
 		ldap.ScopeSingleLevel,
 		ldap.NeverDerefAliases,
 		0,
