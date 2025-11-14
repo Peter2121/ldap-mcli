@@ -336,10 +336,27 @@ func (um *usersManager) SetNewPassword(uid, newPassword string) (string, *errors
 	}
 }
 
-// getDN returns the formatted LDAP user domain name.
-// TODO: add ou
-func (um *usersManager) getDN(attr string, uid string) string {
-	return fmt.Sprintf("%s=%s,%s", attr, uid, um.Client.ConfigLdap.UserBaseDN)
+// getDN returns the formatted LDAP user domain name or empty string
+// if attr is not a principal attribute - LDAP search will be performed
+func (um *usersManager) getDN(attr, uid, ou string) string {
+	if attr == um.Client.UserDnAttribute {
+		if len(ou) == 0 {
+			return fmt.Sprintf("%s=%s,%s", attr, uid, um.Client.ConfigLdap.UserBaseDN)
+		} else {
+			return fmt.Sprintf("%s=%s,ou=%s,%s", attr, uid, ou, um.Client.ConfigLdap.UserBaseDN)
+		}
+	} else {
+		sr := um.getUserSearchRequest(attr, uid)
+		result, cErr := um.Client.doLDAPSearch(sr)
+		if cErr != nil {
+			return ""
+		}
+		if len(result.Entries) == 0 {
+			return ""
+		}
+		user_entry := result.Entries[0]
+		return user_entry.DN
+	}
 }
 
 // getUsersSearchRequest returns a ldap search request to get a list of users.
@@ -375,9 +392,16 @@ func (um *usersManager) getUserSearchRequest(srchAttr, srchStr string) *ldap.Sea
 	}
 }
 
-// getAddRequest returns a ldap add request to add a new user entry.
+// getAddRequest returns a ldap add request to add a new user entry or nil
+// TODO: add OU support
 func (um *usersManager) getAddRequest(user User) *ldap.AddRequest {
-	ar := ldap.NewAddRequest(um.getDN(MailAttr, user.Mail), nil)
+	var ar *ldap.AddRequest = nil
+	if MailAttr == um.Client.UserDnAttribute {
+		ar = ldap.NewAddRequest(um.getDN(MailAttr, user.Mail, ""), nil)
+	} else {
+		// TODO: correctly manage another principal attribute than MailAttr
+		return ar
+	}
 	ar.Attribute(objectClassAttr, um.Client.ObjectClassesMailUser)
 	ar.Attribute(userIdAttr, []string{user.Uid})
 	ar.Attribute(CommonNameAttr, []string{user.Cn})
@@ -436,27 +460,20 @@ func (um *usersManager) getNewUserHomeDir(user User) (string, string) {
 // getPasswordModifyRequest returns a ldap password modify request.
 func (um *usersManager) getPasswordModifyRequest(attr, uid, oldPassword, newPassword string) *ldap.PasswordModifyRequest {
 	return ldap.NewPasswordModifyRequest(
-		um.getDN(attr, uid),
+		um.getDN(attr, uid, ""),
 		oldPassword,
 		newPassword,
 	)
 }
 
 // getDeleteRequest return a ldap delete request.
+// TODO: add OU support
 func (um *usersManager) getDeleteRequest(attr, uid string) (*ldap.DelRequest, *errors.Error) {
-	if attr == um.Client.UserDnAttribute {
-		return ldap.NewDelRequest(um.getDN(attr, uid), nil), nil
+	dn := um.getDN(attr, uid, "")
+	if len(dn) > 0 {
+		return ldap.NewDelRequest(dn, nil), nil
 	} else {
-		sr := um.getUserSearchRequest(attr, uid)
-		result, cErr := um.Client.doLDAPSearch(sr)
-		if cErr != nil {
-			return nil, cErr
-		}
-		if len(result.Entries) == 0 {
-			return nil, errors.NotFoundError(fmt.Sprintf(userNotFoundMsg, attr, uid))
-		}
-		user_entry := result.Entries[0]
-		return ldap.NewDelRequest(user_entry.DN, nil), nil
+		return nil, errors.NotFoundError(fmt.Sprintf(userNotFoundMsg, attr, uid))
 	}
 }
 
@@ -507,7 +524,7 @@ func (um *usersManager) modifyPassword(attr, uid, oldPassword, newPassword strin
 
 // TODO: Add ou
 func (um *usersManager) GetModifyRequest(attr, uid string) *ldap.ModifyRequest {
-	return ldap.NewModifyRequest(um.getDN(attr, uid), nil)
+	return ldap.NewModifyRequest(um.getDN(attr, uid, ""), nil)
 }
 
 func (um *usersManager) ModifyUser(user, old_user User) *errors.Error {
