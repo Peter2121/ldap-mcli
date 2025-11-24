@@ -376,7 +376,6 @@ func (um *usersManager) getUsersSearchRequest(userSearchFilter string) *ldap.Sea
 }
 
 // getUserSearchRequest returns a ldap search request to get a single user entry.
-// TODO: use Filter to search using a given attribute and not DN exact
 func (um *usersManager) getUserSearchRequest(srchAttr, srchStr string) *ldap.SearchRequest {
 	srchFilter := fmt.Sprintf(UserSearchFilter, srchAttr, srchStr)
 	return &ldap.SearchRequest{
@@ -458,6 +457,7 @@ func (um *usersManager) getNewUserHomeDir(user User) (string, string) {
 }
 
 // getPasswordModifyRequest returns a ldap password modify request.
+// TODO: add OU support
 func (um *usersManager) getPasswordModifyRequest(attr, uid, oldPassword, newPassword string) *ldap.PasswordModifyRequest {
 	return ldap.NewPasswordModifyRequest(
 		um.getDN(attr, uid, ""),

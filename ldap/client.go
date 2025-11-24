@@ -74,6 +74,7 @@ type (
 		BindUser               string   `json:"bindUser" required:"true"`
 		BindPassword           string   `json:"bindPassword" required:"true"`
 		UserDnAttribute        string   `json:"user_dn_attr" required:"true"`
+		MailDomain             string   `json:"mail_domain" required:"true"`
 		ObjectClassesMailUser  []string `json:"object_classes_mail_user" required:"true"`
 		ObjectClassesMailGroup []string `json:"object_classes_mail_group" required:"true"`
 		ObjectClassesSecGroup  []string `json:"object_classes_sec_group" required:"true"`
@@ -165,6 +166,28 @@ func (c *Client) SetBindCredentials(bindUser, bindPassword string) *Client {
 	c.ConfigLdap.BindUser = bindUser
 	c.ConfigLdap.BindPassword = bindPassword
 	return c
+}
+
+func (c *Client) AuthenticateUser(username, password string) *errors.Error {
+	var user *User = nil
+	var err *errors.Error = nil
+	is_email_address := strings.Contains(username, "@") // TODO: do regex check with more criteria
+	if is_email_address {
+		user, err = c.Users.GetByEmail(username)
+		if err != nil {
+			return err
+		}
+	} else {
+		user, err = c.Users.GetByUid(username)
+		if err != nil {
+			return err
+		}
+	}
+	errb := c.ldapClient.Bind(user.Dn, password)
+	if errb != nil {
+		return c.handleLdapError(errb)
+	}
+	return nil
 }
 
 // WithLDAPClient overrides the default ldap.Client.
