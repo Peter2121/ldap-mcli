@@ -183,6 +183,12 @@ func (c *Client) AuthenticateUser(username, password string) *errors.Error {
 			return err
 		}
 	}
+
+	errd := c.dial()
+	if errd != nil {
+		return errd
+	}
+	defer c.ldapClient.Close()
 	errb := c.ldapClient.Bind(user.Dn, password)
 	if errb != nil {
 		return c.handleLdapError(errb)
