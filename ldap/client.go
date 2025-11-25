@@ -168,32 +168,32 @@ func (c *Client) SetBindCredentials(bindUser, bindPassword string) *Client {
 	return c
 }
 
-func (c *Client) AuthenticateUser(username, password string) *errors.Error {
+func (c *Client) AuthenticateUser(username, password string) (*User, *errors.Error) {
 	var user *User = nil
 	var err *errors.Error = nil
 	is_email_address := strings.Contains(username, "@") // TODO: do regex check with more criteria
 	if is_email_address {
 		user, err = c.Users.GetByEmail(username)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	} else {
 		user, err = c.Users.GetByUid(username)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
 	errd := c.dial()
 	if errd != nil {
-		return errd
+		return nil, errd
 	}
 	defer c.ldapClient.Close()
 	errb := c.ldapClient.Bind(user.Dn, password)
 	if errb != nil {
-		return c.handleLdapError(errb)
+		return nil, c.handleLdapError(errb)
 	}
-	return nil
+	return user, nil
 }
 
 // WithLDAPClient overrides the default ldap.Client.
