@@ -617,6 +617,8 @@ func (um *usersManager) ModifyUser(user, old_user User) *errors.Error {
 				is_domain_admin := ch.To.(string)
 				if strings.ToUpper(is_domain_admin) == "YES" {
 					attrs_to_replace[domainAdminAttr] = "yes"
+				} else {
+					attrs_to_delete[domainAdminAttr] = ch.From.(string)
 				}
 			case diff.CREATE:
 				is_domain_admin := ch.To.(string)
