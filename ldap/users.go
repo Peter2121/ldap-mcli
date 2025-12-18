@@ -488,7 +488,7 @@ func (um *usersManager) parseSearchResult(result *ldap.SearchResult) []User {
 			Sn:                   e.GetAttributeValue(familyNameAttr),
 			DisplayName:          e.GetAttributeValue(displayNameAttr),
 			Mail:                 e.GetAttributeValue(MailAttr),
-			UserPassword:         e.GetAttributeValue(userPasswordAttr),
+			UserPassword:         "",
 			Status:               e.GetAttributeValue(statusAttr),
 			DomainAdmin:          e.GetAttributeValue(domainAdminAttr),
 			GivenName:            e.GetAttributeValue(givenNameAttr),
