@@ -6,8 +6,8 @@ import (
 )
 
 const (
-	GroupStatusActive       = "Active"
-	GroupStatusDisabled     = "Disabled"
+	GroupStatusActive       = "active"
+	GroupStatusDisabled     = "disabled"
 	noSuchUserGroupMemberCn = "NO_SUCH_USER"
 	groupAlreadyExistsMsg   = "Group with cn = '%s' and ou = '%s' already exists"
 	groupNotFoundMsg        = "Group with %s = '%s' and ou = '%s' was not found"
