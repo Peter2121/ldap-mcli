@@ -276,6 +276,7 @@ func (gm *groupsMailManager) GetUniqueMemberDn(memberId string) string {
 }
 
 // GetSearchRequest returns a ldap search request
+// TODO: Get attributes list from structure tags
 func (gm *groupsMailManager) GetSearchRequest(cn, ou, groupSearchFilter string) *ldap.SearchRequest {
 	return ldap.NewSearchRequest(
 		gm.GetDN(cn, ou),
@@ -290,6 +291,7 @@ func (gm *groupsMailManager) GetSearchRequest(cn, ou, groupSearchFilter string) 
 			statusAttr,
 			MailAttr,
 			enabledServiceAttr,
+            shadowAddressAttr,
 			uniqueMemberAttr,
 		},
 		nil,

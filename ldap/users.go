@@ -30,11 +30,23 @@ const (
 )
 
 var (
-	validStatusList = []string{
+	ValidStatusList = []string{
 		UserStatusActive,
 		UserStatusDisabled,
 		UserStatusRevoked,
 		UserStatusDeleted,
+	}
+)
+
+var (
+	LdapBaseUserAttributes = []string{
+		"uid",
+		"cn",
+		"displayName",
+		"mail",
+		"accountStatus",
+		"domainGlobalAdmin",
+		"mailQuota",
 	}
 )
 
@@ -370,7 +382,7 @@ func (um *usersManager) getUsersSearchRequest(userSearchFilter string) *ldap.Sea
 		TimeLimit:    0,
 		TypesOnly:    false,
 		Filter:       userSearchFilter,
-		Attributes:   um.LdapUserAttributes,
+		Attributes:   LdapBaseUserAttributes,
 		Controls:     nil,
 	}
 }
@@ -783,8 +795,8 @@ func (um *usersManager) validateStatus(status string) *errors.Error {
 	if status == "" { // Will be set to default
 		return nil
 	}
-	if !slice.EntryExists(validStatusList, status) {
-		return errors.BadRequestError(fmt.Sprintf(invalidStatusErrMsg, status, validStatusList))
+	if !slice.EntryExists(ValidStatusList, status) {
+		return errors.BadRequestError(fmt.Sprintf(invalidStatusErrMsg, status, ValidStatusList))
 	}
 	return nil
 }
