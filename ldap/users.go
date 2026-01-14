@@ -17,10 +17,10 @@ import (
 )
 
 const (
-	UserStatusActive   = "Active"
-	UserStatusDisabled = "Disabled"
-	UserStatusRevoked  = "Revoked"
-	UserStatusDeleted  = "Deleted"
+	UserStatusActive   = "active"
+	UserStatusDisabled = "disabled"
+	UserStatusRevoked  = "revoked"
+	UserStatusDeleted  = "deleted"
 
 	userAlreadyExistsMsg   = "User with uid = '%s' already exists"
 	userNotFoundMsg        = "User with %s = '%s' was not found"
