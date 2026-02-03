@@ -96,9 +96,9 @@ type (
 	}
 )
 
-func NewUsersManager(ldap_lient *Client) *usersManager {
+func NewUsersManager(ldap_client *Client) *usersManager {
 	var um usersManager
-	um.Client = ldap_lient
+	um.Client = ldap_client
 	u := User{}
 	um.LdapUserAttributesMap, _ = reflections.Tags(u, "ldap")
 	for _, tag_value := range um.LdapUserAttributesMap {
