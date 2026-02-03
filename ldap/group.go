@@ -149,7 +149,7 @@ func AddMembers[T IGroup, S GroupsManager[T]](mgr *S, cn, ou string, memberIds [
 	for _, memberId := range memberIds {
 		uniqueMember := (*mgr).GetUniqueMemberDn(strings.ToUpper(memberId))
 		if !slice.EntryExists(GetMembers(group), uniqueMember) {
-			logger.Info(fmt.Sprintf(uniqueMemberWillBeAddedToGroupMsg, uniqueMember, (*mgr).GetDN(cn, ou)))
+			logger.Info(fmt.Sprintf(uniqueMemberWillBeAddedToGroupMsg, uniqueMember, (*mgr).GetDN(CommonNameAttr, cn, ou)))
 			uniqueMembers = append(uniqueMembers, uniqueMember)
 		}
 	}
@@ -197,7 +197,7 @@ func RemoveMembers[T IGroup, S GroupsManager[T]](mgr *S, cn, ou string, memberId
 		uniqueMember := (*mgr).GetUniqueMemberDn(strings.ToUpper(memberId))
 		if slice.EntryExists(GetMembers(group), uniqueMember) {
 			if memberId != noSuchUserGroupMemberCn {
-				logger.Info(fmt.Sprintf(uniqueMemberWillBeRemovedFromGroupMsg, uniqueMember, (*mgr).GetDN(cn, ou)))
+				logger.Info(fmt.Sprintf(uniqueMemberWillBeRemovedFromGroupMsg, uniqueMember, (*mgr).GetDN(CommonNameAttr, cn, ou)))
 			}
 			uniqueMembers = append(uniqueMembers, uniqueMember)
 		}

@@ -3,6 +3,7 @@ package ldap
 import (
 	"fmt"
 	"net/http"
+	"reflect"
 	"strconv"
 	"time"
 
@@ -403,6 +404,20 @@ func (um *usersManager) getUserSearchRequest(srchAttr, srchStr string) *ldap.Sea
 	}
 }
 
+func getAttrByTag(user User, tag_value string) string {
+	var tag_name string = "ldap"
+	rv := reflect.ValueOf(user)
+	rt := rv.Type()
+	for i := 0; i < rt.NumField(); i++ {
+		fieldType := rt.Field(i)
+		if fieldType.Tag.Get(tag_name) == tag_value {
+			fieldValue := rv.Field(i)
+			return string(fieldValue.String())
+		}
+	}
+	return ""
+}
+
 // getAddRequest returns a ldap add request to add a new user entry or nil
 // TODO: add OU support
 func (um *usersManager) getAddRequest(user User) *ldap.AddRequest {
@@ -410,8 +425,11 @@ func (um *usersManager) getAddRequest(user User) *ldap.AddRequest {
 	if MailAttr == um.Client.UserDnAttribute {
 		ar = ldap.NewAddRequest(um.getDN(MailAttr, user.Mail, ""), nil)
 	} else {
-		// TODO: correctly manage another principal attribute than MailAttr
-		return ar
+		attr := getAttrByTag(user, um.Client.UserDnAttribute)
+		if attr == "" {
+			return ar
+		}
+		ar = ldap.NewAddRequest(um.getDN(um.Client.UserDnAttribute, attr, ""), nil)
 	}
 	ar.Attribute(objectClassAttr, um.Client.ObjectClassesMailUser)
 	ar.Attribute(userIdAttr, []string{user.Uid})

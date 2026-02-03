@@ -260,46 +260,82 @@ func (gm *groupsMailManager) RemoveMembers(cn, ou string, memberIds []string) *e
 	*/
 }
 
-// getDN returns the formatted domain name of a ldap group
-func (gm *groupsMailManager) GetDN(cn, _ string) string {
+// GetDN returns the formatted domain name of a ldap group
+func (gm *groupsMailManager) GetDN(attr, uid, _ string) string {
+	if attr == "" {
+		attr = CommonNameAttr // Normally never happens
+	}
 	// GroupMail does not support ou as mailList objectClass does not provide such attribute
-	if cn != "" {
-		return fmt.Sprintf("%s=%s,%s", CommonNameAttr, cn, gm.Client.ConfigLdap.GroupBaseDN)
+	if uid != "" {
+		if attr == gm.Client.MailGroupDnAttribute {
+			return fmt.Sprintf("%s=%s,%s", attr, uid, gm.Client.ConfigLdap.GroupBaseDN)
+		} else {
+			sr := gm.GetGroupSearchRequest(attr, uid)
+			//srchFilter := fmt.Sprintf(MailGroupsSearchFilter, attr, uid)
+			//sr := gm.GetSearchRequest("", "", srchFilter)
+			result, cErr := gm.Client.doLDAPSearch(sr)
+			if cErr != nil {
+				return ""
+			}
+			if len(result.Entries) == 0 {
+				return ""
+			}
+			group_entry := result.Entries[0]
+			return group_entry.DN
+		}
 	} else {
 		return gm.Client.ConfigLdap.GroupBaseDN
 	}
 }
 
 // getUniqueMemberDn returns the formatted unique member domain name
+// TODO: add ou support
 func (gm *groupsMailManager) GetUniqueMemberDn(memberId string) string {
 	return fmt.Sprintf("%s=%s,%s", userIdAttr, memberId, gm.Client.ConfigLdap.UserBaseDN)
+}
+
+// getGroupSearchRequest returns a ldap search request to get a single group entry.
+func (gm *groupsMailManager) GetGroupSearchRequest(srchAttr, srchStr string) *ldap.SearchRequest {
+	srchFilter := fmt.Sprintf(MailGroupsSearchFilter, srchAttr, srchStr)
+	return &ldap.SearchRequest{
+		BaseDN:       gm.Client.ConfigLdap.GroupBaseDN,
+		Scope:        ldap.ScopeWholeSubtree,
+		DerefAliases: ldap.NeverDerefAliases,
+		SizeLimit:    0,
+		TimeLimit:    0,
+		TypesOnly:    false,
+		Filter:       srchFilter,
+		Attributes:   gm.LdapGroupAttributes,
+		Controls:     nil,
+	}
 }
 
 // GetSearchRequest returns a ldap search request
 // TODO: Get attributes list from structure tags
 func (gm *groupsMailManager) GetSearchRequest(cn, ou, groupSearchFilter string) *ldap.SearchRequest {
 	return ldap.NewSearchRequest(
-		gm.GetDN(cn, ou),
+		gm.GetDN(CommonNameAttr, cn, ou),
 		ldap.ScopeWholeSubtree,
 		ldap.NeverDerefAliases,
 		0,
 		0,
 		false,
 		groupSearchFilter,
-		[]string{
-			CommonNameAttr,
-			statusAttr,
-			MailAttr,
-			enabledServiceAttr,
-            shadowAddressAttr,
-			uniqueMemberAttr,
-		},
+		gm.LdapGroupAttributes,
 		nil,
 	)
 }
 
 func (gm *groupsMailManager) GetAddRequest(group GroupMail) *ldap.AddRequest {
-	dn := gm.GetDN(group.Cn, "")
+	var dn string = ""
+	switch gm.Client.MailGroupDnAttribute {
+	case CommonNameAttr:
+		dn = gm.GetDN(CommonNameAttr, group.Cn, "")
+	case MailAttr:
+		dn = gm.GetDN(MailAttr, group.Mail, "")
+	default:
+		return nil
+	}
 	ar := ldap.NewAddRequest(dn, nil)
 	ar.Attribute(objectClassAttr, defaultObjectClassesGroupMail)
 	ar.Attribute(CommonNameAttr, []string{group.Cn})
@@ -312,11 +348,11 @@ func (gm *groupsMailManager) GetAddRequest(group GroupMail) *ldap.AddRequest {
 }
 
 func (gm *groupsMailManager) GetModifyRequest(cn, ou string) *ldap.ModifyRequest {
-	return ldap.NewModifyRequest(gm.GetDN(cn, ou), nil)
+	return ldap.NewModifyRequest(gm.GetDN(CommonNameAttr, cn, ou), nil)
 }
 
 func (gm *groupsMailManager) GetDeleteRequest(cn, ou string) *ldap.DelRequest {
-	return ldap.NewDelRequest(gm.GetDN(cn, ou), nil)
+	return ldap.NewDelRequest(gm.GetDN(CommonNameAttr, cn, ou), nil)
 }
 
 // ParseSearchResult parses the ldap search result and retrieves the group entries.

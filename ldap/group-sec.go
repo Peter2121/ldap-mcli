@@ -257,29 +257,53 @@ func (gm *groupsSecManager) RemoveMembers(cn, ou string, memberIds []string) *er
 	*/
 }
 
-// getDN returns the formatted domain name of a ldap group
-func (gm *groupsSecManager) GetDN(cn, ou string) string {
-	if cn != "" && ou != "" {
-		return fmt.Sprintf("%s=%s,%s=%s,%s", CommonNameAttr, cn, OrganizationalUnitAttr, ou,
-			gm.Client.ConfigLdap.GroupBaseDN)
-	} else if cn != "" {
-		return fmt.Sprintf("%s=%s,%s", CommonNameAttr, cn, gm.Client.ConfigLdap.GroupBaseDN)
-	} else if ou != "" {
-		return fmt.Sprintf("%s=%s,%s", OrganizationalUnitAttr, ou, gm.Client.ConfigLdap.GroupBaseDN)
+// GetDN returns the formatted domain name of a ldap group
+// TODO: correctly manage (attr != gm.Client.MailGroupDnAttribute) case
+func (gm *groupsSecManager) GetDN(attr, uid, ou string) string {
+	if attr == "" {
+		attr = CommonNameAttr // Normally never happens
+	}
+	if attr == gm.Client.MailGroupDnAttribute {
+		if uid != "" && ou != "" {
+			return fmt.Sprintf("%s=%s,%s=%s,%s", CommonNameAttr, uid, OrganizationalUnitAttr, ou,
+				gm.Client.ConfigLdap.GroupBaseDN)
+		} else if uid != "" {
+			return fmt.Sprintf("%s=%s,%s", CommonNameAttr, uid, gm.Client.ConfigLdap.GroupBaseDN)
+		} else if ou != "" {
+			return fmt.Sprintf("%s=%s,%s", OrganizationalUnitAttr, ou, gm.Client.ConfigLdap.GroupBaseDN)
+		} else {
+			return gm.Client.ConfigLdap.GroupBaseDN
+		}
 	} else {
-		return gm.Client.ConfigLdap.GroupBaseDN
+		return "" // TODO: search for the group and return the DN
 	}
 }
 
-// getUniqueMemberDn returns the formatted unique member domain name
+// GetUniqueMemberDn returns the formatted unique member domain name
 func (gm *groupsSecManager) GetUniqueMemberDn(memberId string) string {
 	return fmt.Sprintf("%s=%s,%s", userIdAttr, memberId, gm.Client.ConfigLdap.UserBaseDN)
+}
+
+// GetGroupSearchRequest returns a ldap search request to get group entries from different OUs.
+func (gm *groupsSecManager) GetGroupSearchRequest(srchAttr, srchStr string) *ldap.SearchRequest {
+	srchFilter := fmt.Sprintf(SecGroupsSearchFilter, srchAttr, srchStr)
+	return &ldap.SearchRequest{
+		BaseDN:       gm.Client.ConfigLdap.GroupBaseDN,
+		Scope:        ldap.ScopeWholeSubtree,
+		DerefAliases: ldap.NeverDerefAliases,
+		SizeLimit:    0,
+		TimeLimit:    0,
+		TypesOnly:    false,
+		Filter:       srchFilter,
+		Attributes:   gm.LdapGroupAttributes,
+		Controls:     nil,
+	}
 }
 
 // GetSearchRequest returns a ldap search request
 func (gm *groupsSecManager) GetSearchRequest(cn, ou, groupSearchFilter string) *ldap.SearchRequest {
 	return ldap.NewSearchRequest(
-		gm.GetDN(cn, ou),
+		gm.GetDN(CommonNameAttr, cn, ou),
 		ldap.ScopeWholeSubtree,
 		ldap.NeverDerefAliases,
 		0,
@@ -292,7 +316,7 @@ func (gm *groupsSecManager) GetSearchRequest(cn, ou, groupSearchFilter string) *
 }
 
 func (gm *groupsSecManager) GetAddRequest(group GroupSec) *ldap.AddRequest {
-	dn := gm.GetDN(group.Cn, group.Ou)
+	dn := gm.GetDN(CommonNameAttr, group.Cn, group.Ou)
 	ar := ldap.NewAddRequest(dn, nil)
 	ar.Attribute(objectClassAttr, defaultObjectClassesGroupSec)
 	ar.Attribute(CommonNameAttr, []string{group.Cn})
@@ -301,11 +325,11 @@ func (gm *groupsSecManager) GetAddRequest(group GroupSec) *ldap.AddRequest {
 }
 
 func (gm *groupsSecManager) GetModifyRequest(cn, ou string) *ldap.ModifyRequest {
-	return ldap.NewModifyRequest(gm.GetDN(cn, ou), nil)
+	return ldap.NewModifyRequest(gm.GetDN(CommonNameAttr, cn, ou), nil)
 }
 
 func (gm *groupsSecManager) GetDeleteRequest(cn, ou string) *ldap.DelRequest {
-	return ldap.NewDelRequest(gm.GetDN(cn, ou), nil)
+	return ldap.NewDelRequest(gm.GetDN(CommonNameAttr, cn, ou), nil)
 }
 
 // ParseSearchResult parses the ldap search result and retrieves the group entries.

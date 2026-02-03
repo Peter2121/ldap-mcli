@@ -42,6 +42,7 @@ type (
 		Delete(cn, ou string) *errors.Error
 		AddMembers(cn, ou string, memberIds []string) *errors.Error
 		RemoveMembers(cn, ou string, memberIds []string) *errors.Error
+		GetGroupSearchRequest(srchAttr, srchStr string) *ldap.SearchRequest
 		GetSearchRequest(cn, ou, groupSearchFilter string) *ldap.SearchRequest
 		ParseSearchResult(result *ldap.SearchResult) []T
 		ModifyGroup(group, old_group T) *errors.Error
@@ -49,7 +50,7 @@ type (
 		GetAddRequest(T) *ldap.AddRequest
 		GetDeleteRequest(cn, ou string) *ldap.DelRequest
 		GetModifyRequest(cn, ou string) *ldap.ModifyRequest
-		GetDN(cn, ou string) string
+		GetDN(attr, uid, ou string) string
 		GetUniqueMemberDn(memberId string) string
 		SetDefaults(*T)
 	}
