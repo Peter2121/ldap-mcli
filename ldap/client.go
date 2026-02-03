@@ -65,19 +65,21 @@ var (
 type (
 	// ConfigLdap represents LDAP connection details.
 	ConfigLdap struct {
-		Protocol               string   `json:"protocol" yaml:"protocol" mapstructure:"LDAP_PROTOCOL" required:"true"`
-		Hostname               string   `json:"hostname" yaml:"hostname" mapstructure:"LDAP_HOSTNAME" required:"true"`
-		Port                   string   `json:"port" yaml:"port" mapstructure:"LDAP_PORT" required:"true"`
-		BaseDN                 string   `json:"baseDN" yaml:"baseDN" mapstructure:"LDAP_BASE_DN" required:"true"`
-		UserBaseDN             string   `json:"userBaseDN" yaml:"userBaseDN" mapstructure:"LDAP_USER_BASE_DN" required:"true"`
-		GroupBaseDN            string   `json:"groupBaseDN" yaml:"groupBaseDN" mapstructure:"LDAP_GROUP_BASE_DN" required:"true"`
-		BindUser               string   `json:"bindUser" required:"true"`
-		BindPassword           string   `json:"bindPassword" required:"true"`
-		UserDnAttribute        string   `json:"user_dn_attr" required:"true"`
-		MailDomain             string   `json:"mail_domain" required:"true"`
-		ObjectClassesMailUser  []string `json:"object_classes_mail_user" required:"true"`
-		ObjectClassesMailGroup []string `json:"object_classes_mail_group" required:"true"`
-		ObjectClassesSecGroup  []string `json:"object_classes_sec_group" required:"true"`
+		Protocol                 string   `json:"protocol" yaml:"protocol" mapstructure:"LDAP_PROTOCOL" required:"true"`
+		Hostname                 string   `json:"hostname" yaml:"hostname" mapstructure:"LDAP_HOSTNAME" required:"true"`
+		Port                     string   `json:"port" yaml:"port" mapstructure:"LDAP_PORT" required:"true"`
+		BaseDN                   string   `json:"baseDN" yaml:"baseDN" mapstructure:"LDAP_BASE_DN" required:"true"`
+		UserBaseDN               string   `json:"userBaseDN" yaml:"userBaseDN" mapstructure:"LDAP_USER_BASE_DN" required:"true"`
+		GroupBaseDN              string   `json:"groupBaseDN" yaml:"groupBaseDN" mapstructure:"LDAP_GROUP_BASE_DN" required:"true"`
+		BindUser                 string   `json:"bindUser" required:"true"`
+		BindPassword             string   `json:"bindPassword" required:"true"`
+		UserDnAttribute          string   `json:"user_dn_attr" required:"true"`
+		MailGroupDnAttribute     string   `json:"mail_group_dn_attr"`
+		SecurityGroupDnAttribute string   `json:"sec_group_dn_attr"`
+		MailDomain               string   `json:"mail_domain" required:"true"`
+		ObjectClassesMailUser    []string `json:"object_classes_mail_user" required:"true"`
+		ObjectClassesMailGroup   []string `json:"object_classes_mail_group" required:"true"`
+		ObjectClassesSecGroup    []string `json:"object_classes_sec_group" required:"true"`
 	}
 
 	ConfigMailUser struct {
