@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -23,11 +24,15 @@ const (
 	UserStatusRevoked  = "revoked"
 	UserStatusDeleted  = "deleted"
 
-	userAlreadyExistsMsg   = "User with uid = '%s' already exists"
-	userNotFoundMsg        = "User with %s = '%s' was not found"
-	invalidStatusErrMsg    = "Invalid status '%s'. Valid status's are %v"
-	invalidFilterKeyErrMsg = "Invalid filter key '%s'. Valid filter keys are %v"
-	invalidPasswordErrMsg  = "Invalid password '%s'"
+	userAlreadyExistsMsg          = "User with uid = '%s' already exists"
+	userNotFoundMsg               = "User with %s = '%s' was not found"
+	invalidStatusErrMsg           = "Invalid status '%s'. Valid status's are %v"
+	invalidFilterKeyErrMsg        = "Invalid filter key '%s'. Valid filter keys are %v"
+	invalidPasswordErrMsg         = "Invalid password '%s'"
+	MAX_LEN_ID             int    = 128
+	EMAIL_VALIDATION_REGEX string = `^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$`
+	CN_VALIDATION_REGEX    string = `^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$`
+	UID_VALIDATION_REGEX   string = `^[a-zA-Z][a-zA-Z0-9._-]{0,31}$`
 )
 
 var (
@@ -165,7 +170,7 @@ func (um *usersManager) GetByUid(uid string) (*User, *errors.Error) {
 //   - if there is a connection/network issue while opening a connection with LDAP
 //   - if the query to LDAP fails
 func (um *usersManager) GetByEmail(email string) (*User, *errors.Error) {
-	if cErr := um.validateUid(email); cErr != nil {
+	if cErr := um.validateEmail(email); cErr != nil {
 		return nil, cErr
 	}
 	sr := um.getUserSearchRequest(MailAttr, email)
@@ -389,8 +394,9 @@ func (um *usersManager) getUsersSearchRequest(userSearchFilter string) *ldap.Sea
 }
 
 // getUserSearchRequest returns a ldap search request to get a single user entry.
-func (um *usersManager) getUserSearchRequest(srchAttr, srchStr string) *ldap.SearchRequest {
-	srchFilter := fmt.Sprintf(UserSearchFilter, srchAttr, srchStr)
+func (um *usersManager) getUserSearchRequest(srch_attr, srch_str string) *ldap.SearchRequest {
+	search_string := ldap.EscapeFilter(srch_str)
+	srch_filter := fmt.Sprintf(UserSearchFilter, srch_attr, search_string)
 	return &ldap.SearchRequest{
 		BaseDN:       um.Client.ConfigLdap.UserBaseDN,
 		Scope:        ldap.ScopeWholeSubtree,
@@ -398,7 +404,7 @@ func (um *usersManager) getUserSearchRequest(srchAttr, srchStr string) *ldap.Sea
 		SizeLimit:    0,
 		TimeLimit:    0,
 		TypesOnly:    false,
-		Filter:       srchFilter,
+		Filter:       srch_filter,
 		Attributes:   um.LdapUserAttributes,
 		Controls:     nil,
 	}
@@ -725,10 +731,33 @@ func (um *usersManager) ModifyUser(user, old_user User) *errors.Error {
 	return nil
 }
 
-// validateUid checks if the uid is set.
+// validateUid checks if the uid is correct.
 func (um *usersManager) validateUid(uid string) *errors.Error {
-	if strings.TrimSpace(uid) == "" {
+	uidstr := strings.TrimSpace(uid)
+	if len(uidstr) == 0 {
 		return errors.BadRequestErrorf(errors.ErrMsg[errors.ErrCodeMissingMandatoryParameter], []string{userIdAttr})
+	}
+	if len(uidstr) > MAX_LEN_ID {
+		return errors.BadRequestErrorf(errors.ErrMsg[errors.ErrCodeBadRequest])
+	}
+	uid_regex := regexp.MustCompile(UID_VALIDATION_REGEX)
+	if !uid_regex.MatchString(uidstr) {
+		return errors.BadRequestErrorf(errors.ErrMsg[errors.ErrCodeBadRequest])
+	}
+	return nil
+}
+
+func (um *usersManager) validateEmail(mail string) *errors.Error {
+	mailstr := strings.TrimSpace(mail)
+	if len(mailstr) == 0 {
+		return errors.BadRequestErrorf(errors.ErrMsg[errors.ErrCodeMissingMandatoryParameter], []string{MailAttr})
+	}
+	if len(mailstr) > MAX_LEN_ID {
+		return errors.BadRequestErrorf(errors.ErrMsg[errors.ErrCodeBadRequest])
+	}
+	email_regex := regexp.MustCompile(EMAIL_VALIDATION_REGEX)
+	if !email_regex.MatchString(mailstr) {
+		return errors.BadRequestErrorf(errors.ErrMsg[errors.ErrCodeBadRequest])
 	}
 	return nil
 }
