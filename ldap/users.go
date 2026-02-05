@@ -241,6 +241,10 @@ func (um *usersManager) Create(user User) *errors.Error {
 	um.SetDefaults(&user)
 	ar := um.getAddRequest(user)
 
+	if ar == nil {
+		return errors.BadRequestError("Cannot add user")
+	}
+
 	if cErr := um.Client.doLDAPAdd(ar); cErr != nil {
 		if cErr.Status == http.StatusBadRequest {
 			return errors.ConflictError(fmt.Sprintf(userAlreadyExistsMsg, user.Uid))
@@ -435,34 +439,39 @@ func (um *usersManager) getAddRequest(user User) *ldap.AddRequest {
 		if attr == "" {
 			return ar
 		}
-		ar = ldap.NewAddRequest(um.getDN(um.Client.UserDnAttribute, attr, ""), nil)
+		dn := um.getDN(um.Client.UserDnAttribute, attr, "")
+		if len(dn) == 0 {
+			return ar
+		}
+		ar = ldap.NewAddRequest(dn, nil)
 	}
-	ar.Attribute(objectClassAttr, um.Client.ObjectClassesMailUser)
-	ar.Attribute(userIdAttr, []string{user.Uid})
-	ar.Attribute(CommonNameAttr, []string{user.Cn})
-	ar.Attribute(familyNameAttr, []string{user.Sn})
-	ar.Attribute(displayNameAttr, []string{user.DisplayName})
-	ar.Attribute(MailAttr, []string{user.Mail})
-	ar.Attribute(userPasswordAttr, []string{user.UserPassword})
-	ar.Attribute(statusAttr, []string{user.Status})
-	if len(user.EnabledServices) != 0 {
-		ar.Attribute(enabledServiceAttr, user.EnabledServices)
-	} else {
-		ar.Attribute(enabledServiceAttr, um.Client.User.DefaultEnabledServices)
+	if ar != nil {
+		ar.Attribute(objectClassAttr, um.Client.ObjectClassesMailUser)
+		ar.Attribute(userIdAttr, []string{user.Uid})
+		ar.Attribute(CommonNameAttr, []string{user.Cn})
+		ar.Attribute(familyNameAttr, []string{user.Sn})
+		ar.Attribute(displayNameAttr, []string{user.DisplayName})
+		ar.Attribute(MailAttr, []string{user.Mail})
+		ar.Attribute(userPasswordAttr, []string{user.UserPassword})
+		ar.Attribute(statusAttr, []string{user.Status})
+		if len(user.EnabledServices) != 0 {
+			ar.Attribute(enabledServiceAttr, user.EnabledServices)
+		} else {
+			ar.Attribute(enabledServiceAttr, um.Client.User.DefaultEnabledServices)
+		}
+		if len(user.MailAliases) != 0 {
+			ar.Attribute(shadowAddressAttr, user.MailAliases)
+		} else {
+			ar.Attribute(shadowAddressAttr, []string{""})
+		}
+		if strings.ToUpper(user.DomainAdmin) == "YES" {
+			ar.Attribute(domainAdminAttr, []string{"yes"})
+		}
+		ar.Attribute(givenNameAttr, []string{user.GivenName})
+		ar.Attribute(mailboxFormatAttr, []string{user.MailboxFormat})
+		ar.Attribute(homeDirectoryAttr, []string{user.HomeDirectory})
+		ar.Attribute(mailQuotaAttr, []string{user.MailQuota})
 	}
-	if len(user.MailAliases) != 0 {
-		ar.Attribute(shadowAddressAttr, user.MailAliases)
-	} else {
-		ar.Attribute(shadowAddressAttr, []string{""})
-	}
-	if strings.ToUpper(user.DomainAdmin) == "YES" {
-		ar.Attribute(domainAdminAttr, []string{"yes"})
-	}
-	ar.Attribute(givenNameAttr, []string{user.GivenName})
-	ar.Attribute(mailboxFormatAttr, []string{user.MailboxFormat})
-	ar.Attribute(homeDirectoryAttr, []string{user.HomeDirectory})
-	ar.Attribute(mailQuotaAttr, []string{user.MailQuota})
-
 	return ar
 }
 
@@ -495,11 +504,11 @@ func (um *usersManager) getNewUserHomeDir(user User) (string, string) {
 // getPasswordModifyRequest returns a ldap password modify request.
 // TODO: add OU support
 func (um *usersManager) getPasswordModifyRequest(attr, uid, oldPassword, newPassword string) *ldap.PasswordModifyRequest {
-	return ldap.NewPasswordModifyRequest(
-		um.getDN(attr, uid, ""),
-		oldPassword,
-		newPassword,
-	)
+	dn := um.getDN(attr, uid, "")
+	if len(dn) == 0 {
+		return nil
+	}
+	return ldap.NewPasswordModifyRequest(dn, oldPassword, newPassword)
 }
 
 // getDeleteRequest return a ldap delete request.
@@ -547,6 +556,9 @@ func (um *usersManager) parseSearchResult(result *ldap.SearchResult) []User {
 // modifyPassword processes the ldap password modify request.
 func (um *usersManager) modifyPassword(attr, uid, oldPassword, newPassword string) (*ldap.PasswordModifyResult, *errors.Error) {
 	pmr := um.getPasswordModifyRequest(attr, uid, oldPassword, newPassword)
+	if pmr == nil {
+		return nil, errors.NotFoundError(fmt.Sprintf(userNotFoundMsg, userIdAttr, uid))
+	}
 	result, cErr := um.Client.doLDAPPasswordModify(pmr)
 	if cErr != nil {
 		if cErr.Status == http.StatusNotFound {
@@ -560,7 +572,11 @@ func (um *usersManager) modifyPassword(attr, uid, oldPassword, newPassword strin
 
 // TODO: Add ou
 func (um *usersManager) GetModifyRequest(attr, uid string) *ldap.ModifyRequest {
-	return ldap.NewModifyRequest(um.getDN(attr, uid, ""), nil)
+	dn := um.getDN(attr, uid, "")
+	if len(dn) == 0 {
+		return nil
+	}
+	return ldap.NewModifyRequest(dn, nil)
 }
 
 func (um *usersManager) ModifyUser(user, old_user User) *errors.Error {
@@ -697,6 +713,9 @@ func (um *usersManager) ModifyUser(user, old_user User) *errors.Error {
 	}
 
 	req := um.GetModifyRequest(MailAttr, user.Mail)
+	if req == nil {
+		return errors.BadRequestError("Cannot get modify request")
+	}
 
 	if len(services_to_add) > 0 {
 		req.Add(enabledServiceAttr, services_to_add)
