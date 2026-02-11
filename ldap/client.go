@@ -2,6 +2,7 @@ package ldap
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/atselvan/go-utils/utils/config"
@@ -171,15 +172,32 @@ func (c *Client) SetBindCredentials(bindUser, bindPassword string) *Client {
 }
 
 func (c *Client) AuthenticateUser(username, password string) (*User, *errors.Error) {
+	const MAX_LEN_USERNAME int = 128
+	const MAX_LEN_PASSWORD int = 128
+	const EMAIL_VALIDATION_REGEX string = `^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$`
+	const UID_VALIDATION_REGEX string = `^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$`
+
+	email_regex := regexp.MustCompile(EMAIL_VALIDATION_REGEX)
+	uid_regex := regexp.MustCompile(UID_VALIDATION_REGEX)
+
 	var user *User = nil
 	var err *errors.Error = nil
+	if (len(username) > MAX_LEN_USERNAME) || (len(password) > MAX_LEN_PASSWORD) {
+		return nil, errors.BadRequestError("Invalid credentials")
+	}
 	is_email_address := strings.Contains(username, "@") // TODO: do regex check with more criteria
 	if is_email_address {
+		if !email_regex.MatchString(username) {
+			return nil, errors.BadRequestError("Invalid credentials")
+		}
 		user, err = c.Users.GetByEmail(username)
 		if err != nil {
 			return nil, err
 		}
 	} else {
+		if !uid_regex.MatchString(username) {
+			return nil, errors.BadRequestError("Invalid credentials")
+		}
 		user, err = c.Users.GetByUid(username)
 		if err != nil {
 			return nil, err
