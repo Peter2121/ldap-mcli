@@ -263,7 +263,7 @@ func (gm *groupsSecManager) GetDN(attr, uid, ou string) string {
 	if attr == "" {
 		attr = CommonNameAttr // Normally never happens
 	}
-	if attr == gm.Client.MailGroupDnAttribute {
+	if attr == gm.Client.SecurityGroupDnAttribute {
 		if uid != "" && ou != "" {
 			return fmt.Sprintf("%s=%s,%s=%s,%s", CommonNameAttr, uid, OrganizationalUnitAttr, ou,
 				gm.Client.ConfigLdap.GroupBaseDN)
