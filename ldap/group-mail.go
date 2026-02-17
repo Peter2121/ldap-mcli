@@ -348,11 +348,19 @@ func (gm *groupsMailManager) GetAddRequest(group GroupMail) *ldap.AddRequest {
 }
 
 func (gm *groupsMailManager) GetModifyRequest(cn, ou string) *ldap.ModifyRequest {
-	return ldap.NewModifyRequest(gm.GetDN(CommonNameAttr, cn, ou), nil)
+	dn := gm.GetDN(CommonNameAttr, cn, ou)
+	if (dn != "") && (dn != gm.Client.ConfigLdap.GroupBaseDN) {
+		return ldap.NewModifyRequest(dn, nil)
+	}
+	return nil
 }
 
 func (gm *groupsMailManager) GetDeleteRequest(cn, ou string) *ldap.DelRequest {
-	return ldap.NewDelRequest(gm.GetDN(CommonNameAttr, cn, ou), nil)
+	dn := gm.GetDN(CommonNameAttr, cn, ou)
+	if (dn != "") && (dn != gm.Client.ConfigLdap.GroupBaseDN) {
+		return ldap.NewDelRequest(dn, nil)
+	}
+	return nil
 }
 
 // ParseSearchResult parses the ldap search result and retrieves the group entries.
@@ -481,6 +489,9 @@ func (gm *groupsMailManager) ModifyGroup(group, old_group GroupMail) *errors.Err
 		return errors.InternalServerError(fmt.Sprintf("Cannot parse differ changelog: %v", changelog))
 	}
 	req := gm.GetModifyRequest(group.Cn, "")
+	if req == nil {
+		return nil
+	}
 
 	if len(members_to_add) > 0 {
 		req.Add(uniqueMemberAttr, members_to_add)

@@ -109,7 +109,11 @@ func Delete[T any, S GroupsManager[T]](mgr *S, cn, ou string) *errors.Error {
 	if err := validateGroup(cn); err != nil {
 		return err
 	}
-	if cErr := (*mgr).GetClient().doLDAPDelete((*mgr).GetDeleteRequest(cn, ou)); cErr != nil {
+	req := (*mgr).GetDeleteRequest(cn, ou)
+	if req == nil {
+		return errors.BadRequestError("Cannot get delete request")
+	}
+	if cErr := (*mgr).GetClient().doLDAPDelete(req); cErr != nil {
 		if cErr.Status == http.StatusNotFound {
 			return errors.NotFoundError(fmt.Sprintf(groupNotFoundMsg, "cn", cn, ou))
 		} else {

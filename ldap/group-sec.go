@@ -325,11 +325,19 @@ func (gm *groupsSecManager) GetAddRequest(group GroupSec) *ldap.AddRequest {
 }
 
 func (gm *groupsSecManager) GetModifyRequest(cn, ou string) *ldap.ModifyRequest {
-	return ldap.NewModifyRequest(gm.GetDN(CommonNameAttr, cn, ou), nil)
+	dn := gm.GetDN(CommonNameAttr, cn, ou)
+	if (dn != "") && (dn != gm.Client.ConfigLdap.GroupBaseDN) {
+		return ldap.NewModifyRequest(dn, nil)
+	}
+	return nil
 }
 
 func (gm *groupsSecManager) GetDeleteRequest(cn, ou string) *ldap.DelRequest {
-	return ldap.NewDelRequest(gm.GetDN(CommonNameAttr, cn, ou), nil)
+	dn := gm.GetDN(CommonNameAttr, cn, ou)
+	if (dn != "") && (dn != gm.Client.ConfigLdap.GroupBaseDN) {
+		return ldap.NewDelRequest(gm.GetDN(CommonNameAttr, cn, ou), nil)
+	}
+	return nil
 }
 
 // ParseSearchResult parses the ldap search result and retrieves the group entries.
@@ -391,6 +399,10 @@ func (gm *groupsSecManager) ModifyGroup(group, old_group GroupSec) *errors.Error
 		return errors.InternalServerError(fmt.Sprintf("Cannot parse differ changelog: %v", changelog))
 	}
 	req := gm.GetModifyRequest(group.Cn, group.Ou)
+	if req == nil {
+		return errors.BadRequestError("Cannot get modify request")
+	}
+
 	if len(members_to_add) > 0 {
 		req.Add(uniqueMemberAttr, members_to_add)
 	}
