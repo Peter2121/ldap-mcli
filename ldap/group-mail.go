@@ -490,7 +490,7 @@ func (gm *groupsMailManager) ModifyGroup(group, old_group GroupMail) *errors.Err
 	}
 	req := gm.GetModifyRequest(group.Cn, "")
 	if req == nil {
-		return nil
+		return errors.BadRequestError("Cannot get modify request")
 	}
 
 	if len(members_to_add) > 0 {
