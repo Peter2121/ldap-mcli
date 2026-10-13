@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/atselvan/go-utils/utils/errors"
+	"github.com/atselvan/go-utils/utils/slice"
 	"github.com/go-ldap/ldap/v3"
 	"github.com/oleiade/reflections"
 	"github.com/r3labs/diff/v3"
@@ -97,7 +98,10 @@ func (gm *groupsMailManager) Get(cn, _ string) ([]GroupMail, *errors.Error) {
 
 func (gm *groupsMailManager) GetOne(attr, aval, ou string) (*GroupMail, *errors.Error) {
 	// ou will be ignored for GroupMail car mailList objectClass does not have this attribute
-	search_request_str := fmt.Sprintf(MailGroupsSearchFilter, attr, aval)
+	if !slice.EntryExists(gm.LdapGroupAttributes, attr) {
+		return nil, errors.BadRequestError(fmt.Sprintf(invalidFilterKeyErrMsg, attr, gm.LdapGroupAttributes))
+	}
+	search_request_str := fmt.Sprintf(MailGroupsSearchFilter, attr, ldap.EscapeFilter(aval))
 	ret, err := gm.GetFilteredGroups(search_request_str)
 	if err == nil && len(ret) > 0 {
 		return &(ret[0]), nil
@@ -268,7 +272,7 @@ func (gm *groupsMailManager) GetDN(attr, uid, _ string) string {
 	// GroupMail does not support ou as mailList objectClass does not provide such attribute
 	if uid != "" {
 		if attr == gm.Client.MailGroupDnAttribute {
-			return fmt.Sprintf("%s=%s,%s", attr, uid, gm.Client.ConfigLdap.GroupBaseDN)
+			return fmt.Sprintf("%s=%s,%s", attr, ldap.EscapeDN(uid), gm.Client.ConfigLdap.GroupBaseDN)
 		} else {
 			sr := gm.GetGroupSearchRequest(attr, uid)
 			//srchFilter := fmt.Sprintf(MailGroupsSearchFilter, attr, uid)
@@ -291,12 +295,12 @@ func (gm *groupsMailManager) GetDN(attr, uid, _ string) string {
 // getUniqueMemberDn returns the formatted unique member domain name
 // TODO: add ou support
 func (gm *groupsMailManager) GetUniqueMemberDn(memberId string) string {
-	return fmt.Sprintf("%s=%s,%s", userIdAttr, memberId, gm.Client.ConfigLdap.UserBaseDN)
+	return fmt.Sprintf("%s=%s,%s", userIdAttr, ldap.EscapeDN(memberId), gm.Client.ConfigLdap.UserBaseDN)
 }
 
 // getGroupSearchRequest returns a ldap search request to get a single group entry.
 func (gm *groupsMailManager) GetGroupSearchRequest(srchAttr, srchStr string) *ldap.SearchRequest {
-	srchFilter := fmt.Sprintf(MailGroupsSearchFilter, srchAttr, srchStr)
+	srchFilter := fmt.Sprintf(MailGroupsSearchFilter, srchAttr, ldap.EscapeFilter(srchStr))
 	return &ldap.SearchRequest{
 		BaseDN:       gm.Client.ConfigLdap.GroupBaseDN,
 		Scope:        ldap.ScopeWholeSubtree,
@@ -541,6 +545,10 @@ func (gm *groupsMailManager) ValidateGroup(group GroupMail) *errors.Error {
 
 	if len(missingParams) > 0 {
 		return errors.BadRequestErrorf(errors.ErrMsg[errors.ErrCodeMissingMandatoryParameter], missingParams)
+	}
+	// mail may become the RDN of the group: enforce its format
+	if !isValidEmail(strings.TrimSpace(group.Mail)) {
+		return errors.BadRequestErrorf(errors.ErrMsg[errors.ErrCodeBadRequest])
 	}
 	return nil
 }

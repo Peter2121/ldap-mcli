@@ -28,7 +28,8 @@ const (
 	userNotFoundMsg               = "User with %s = '%s' was not found"
 	invalidStatusErrMsg           = "Invalid status '%s'. Valid status's are %v"
 	invalidFilterKeyErrMsg        = "Invalid filter key '%s'. Valid filter keys are %v"
-	invalidPasswordErrMsg         = "Invalid password '%s'"
+	invalidPasswordErrMsg         = "Invalid password: minimum length is %d"
+	MIN_LEN_PASSWORD       int    = 6
 	MAX_LEN_ID             int    = 128
 	EMAIL_VALIDATION_REGEX string = `^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$`
 	CN_VALIDATION_REGEX    string = `^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$`
@@ -78,6 +79,7 @@ type (
 		Client                *Client
 		LdapUserAttributes    []string
 		LdapUserAttributesMap map[string]string
+		immutableAttributes   map[string]bool // ldap attributes whose field carries diff:"...,immutable"
 	}
 
 	// User represents the attributes of a user in LDAP
@@ -109,6 +111,15 @@ func NewUsersManager(ldap_client *Client) *usersManager {
 	um.LdapUserAttributesMap, _ = reflections.Tags(u, "ldap")
 	for _, tag_value := range um.LdapUserAttributesMap {
 		um.LdapUserAttributes = append(um.LdapUserAttributes, tag_value)
+	}
+	um.immutableAttributes = make(map[string]bool)
+	diff_tags, _ := reflections.Tags(u, "diff")
+	for field_name, diff_tag := range diff_tags {
+		if slice.EntryExists(strings.Split(diff_tag, ","), "immutable") {
+			if ldap_attr, ok := um.LdapUserAttributesMap[field_name]; ok && ldap_attr != "" {
+				um.immutableAttributes[ldap_attr] = true
+			}
+		}
 	}
 	return &um
 }
@@ -204,7 +215,7 @@ func (um *usersManager) Filter(key, value string) ([]User, *errors.Error) {
 	if cErr := um.validateFilter(key, value); cErr != nil {
 		return nil, cErr
 	}
-	userSearchFilter := fmt.Sprintf(UserSearchFilter, key, value)
+	userSearchFilter := fmt.Sprintf(UserSearchFilter, key, ldap.EscapeFilter(value))
 	sr := um.getUsersSearchRequest(userSearchFilter)
 	result, err := um.Client.doLDAPSearch(sr)
 	if err != nil {
@@ -253,7 +264,8 @@ func (um *usersManager) Create(user User) *errors.Error {
 		}
 	}
 
-	if _, cErr := um.modifyPassword(MailAttr, user.Mail, user.UserPassword, user.UserPassword); cErr != nil {
+	// Entry has no password yet: the account cannot bind until this succeeds (fails closed)
+	if _, cErr := um.modifyPassword(MailAttr, user.Mail, "", user.UserPassword); cErr != nil {
 		return cErr
 	}
 
@@ -300,7 +312,7 @@ func (um *usersManager) DeleteByUid(uid string) *errors.Error {
 //   - if there is a connection/network issue while opening a connection with LDAP
 //   - if the query to LDAP fails
 func (um *usersManager) DeleteByEmail(email string) *errors.Error {
-	if cErr := um.validateUid(email); cErr != nil {
+	if cErr := um.validateEmail(email); cErr != nil {
 		return cErr
 	}
 	dr, errreq := um.getDeleteRequest(MailAttr, email)
@@ -327,7 +339,12 @@ func (um *usersManager) DeleteByEmail(email string) *errors.Error {
 //   - if there is a connection/network issue while opening a connection with LDAP
 //   - if the query to LDAP fails
 func (um *usersManager) Authenticate() *errors.Error {
-	return um.Client.connect()
+	conn, cErr := um.Client.connect()
+	if cErr != nil {
+		return cErr
+	}
+	conn.Close()
+	return nil
 }
 
 // SetNewPassword sets a new password for an existing user entry in LDAP.
@@ -343,6 +360,9 @@ func (um *usersManager) Authenticate() *errors.Error {
 //   - if there is a connection/network issue while opening a connection with LDAP
 //   - if the query to LDAP fails
 func (um *usersManager) SetNewPassword(uid, newPassword string) (string, *errors.Error) {
+	if cErr := um.validateUid(uid); cErr != nil {
+		return "", cErr
+	}
 	if newPassword == "" {
 		result, cErr := um.modifyPassword(userIdAttr, uid, "", "")
 		if cErr != nil {
@@ -350,6 +370,9 @@ func (um *usersManager) SetNewPassword(uid, newPassword string) (string, *errors
 		}
 		return result.GeneratedPassword, nil
 	} else {
+		if cErr := um.validatePassword(newPassword); cErr != nil {
+			return "", cErr
+		}
 		_, cErr := um.modifyPassword(userIdAttr, uid, "", newPassword)
 		if cErr != nil {
 			return "", cErr
@@ -363,9 +386,9 @@ func (um *usersManager) SetNewPassword(uid, newPassword string) (string, *errors
 func (um *usersManager) getDN(attr, uid, ou string) string {
 	if attr == um.Client.UserDnAttribute {
 		if len(ou) == 0 {
-			return fmt.Sprintf("%s=%s,%s", attr, uid, um.Client.ConfigLdap.UserBaseDN)
+			return fmt.Sprintf("%s=%s,%s", attr, ldap.EscapeDN(uid), um.Client.ConfigLdap.UserBaseDN)
 		} else {
-			return fmt.Sprintf("%s=%s,ou=%s,%s", attr, uid, ou, um.Client.ConfigLdap.UserBaseDN)
+			return fmt.Sprintf("%s=%s,ou=%s,%s", attr, ldap.EscapeDN(uid), ldap.EscapeDN(ou), um.Client.ConfigLdap.UserBaseDN)
 		}
 	} else {
 		sr := um.getUserSearchRequest(attr, uid)
@@ -452,7 +475,7 @@ func (um *usersManager) getAddRequest(user User) *ldap.AddRequest {
 		ar.Attribute(familyNameAttr, []string{user.Sn})
 		ar.Attribute(displayNameAttr, []string{user.DisplayName})
 		ar.Attribute(MailAttr, []string{user.Mail})
-		ar.Attribute(userPasswordAttr, []string{user.UserPassword})
+		// userPassword is never written in clear: set afterwards through the Password Modify extended op
 		ar.Attribute(statusAttr, []string{user.Status})
 		if len(user.EnabledServices) != 0 {
 			ar.Attribute(enabledServiceAttr, user.EnabledServices)
@@ -616,6 +639,7 @@ func (um *usersManager) ModifyUser(user, old_user User) *errors.Error {
 	attrs_to_replace := make(map[string]string)
 	attrs_to_add := make(map[string]string)
 	attrs_to_delete := make(map[string]string)
+	new_password := ""
 
 	for _, ch := range changelog {
 		switch ch.Path[0] {
@@ -644,16 +668,13 @@ func (um *usersManager) ModifyUser(user, old_user User) *errors.Error {
 				}
 			}
 		case userPasswordAttr:
+			// Never Replace userPassword in clear: handled below through Password Modify
 			password := ch.To.(string)
 			if len(password) > 0 {
 				if errpasswd := um.validatePassword(password); errpasswd != nil {
 					return errpasswd
-				} else {
-					switch ch.Type {
-					case diff.UPDATE:
-						attrs_to_replace[userPasswordAttr] = password
-					}
 				}
+				new_password = password
 			}
 		case statusAttr:
 			status := ch.To.(string)
@@ -693,7 +714,8 @@ func (um *usersManager) ModifyUser(user, old_user User) *errors.Error {
 				}
 			}
 		default:
-			if slice.EntryExists(um.LdapUserAttributes, ch.Path[0]) {
+			// Immutable fields (uid, mail, mailbox paths...) are reported by the differ but never written
+			if slice.EntryExists(um.LdapUserAttributes, ch.Path[0]) && !um.immutableAttributes[ch.Path[0]] {
 				switch ch.Type {
 				case diff.CREATE:
 					attrs_to_add[ch.Path[0]] = ch.To.(string)
@@ -706,10 +728,16 @@ func (um *usersManager) ModifyUser(user, old_user User) *errors.Error {
 		}
 	}
 
-	if (len(services_to_add) == 0) && (len(services_to_remove) == 0) &&
-		(len(aliases_to_add) == 0) && (len(aliases_to_remove) == 0) &&
-		(len(attrs_to_add) == 0) && (len(attrs_to_delete) == 0) && (len(attrs_to_replace) == 0) {
-		return errors.InternalServerError(fmt.Sprintf("Cannot parse differ changelog: %v", changelog))
+	has_attr_changes := (len(services_to_add) > 0) || (len(services_to_remove) > 0) ||
+		(len(aliases_to_add) > 0) || (len(aliases_to_remove) > 0) ||
+		(len(attrs_to_add) > 0) || (len(attrs_to_delete) > 0) || (len(attrs_to_replace) > 0)
+	if !has_attr_changes && new_password == "" {
+		return errors.BadRequestError("No modifiable attribute changed")
+	}
+
+	if !has_attr_changes {
+		_, cErr := um.modifyPassword(MailAttr, user.Mail, "", new_password)
+		return cErr
 	}
 
 	req := um.GetModifyRequest(MailAttr, user.Mail)
@@ -747,6 +775,12 @@ func (um *usersManager) ModifyUser(user, old_user User) *errors.Error {
 		return cErr
 	}
 
+	if new_password != "" {
+		if _, cErr := um.modifyPassword(MailAttr, user.Mail, "", new_password); cErr != nil {
+			return cErr
+		}
+	}
+
 	return nil
 }
 
@@ -774,11 +808,15 @@ func (um *usersManager) validateEmail(mail string) *errors.Error {
 	if len(mailstr) > MAX_LEN_ID {
 		return errors.BadRequestErrorf(errors.ErrMsg[errors.ErrCodeBadRequest])
 	}
-	email_regex := regexp.MustCompile(EMAIL_VALIDATION_REGEX)
-	if !email_regex.MatchString(mailstr) {
+	if !isValidEmail(mailstr) {
 		return errors.BadRequestErrorf(errors.ErrMsg[errors.ErrCodeBadRequest])
 	}
 	return nil
+}
+
+// isValidEmail checks the mail address format (shared by users and mail groups).
+func isValidEmail(mail string) bool {
+	return regexp.MustCompile(EMAIL_VALIDATION_REGEX).MatchString(mail)
 }
 
 // Sets default values for some user attributes (used on user creation)
@@ -832,6 +870,18 @@ func (um *usersManager) validateUser(user User) *errors.Error {
 	if len(missingParams) > 0 {
 		return errors.BadRequestErrorf(errors.ErrMsg[errors.ErrCodeMissingMandatoryParameter], missingParams)
 	}
+	// mail (and uid when given) may become the RDN: enforce their format before building the DN
+	if cErr := um.validateEmail(user.Mail); cErr != nil {
+		return cErr
+	}
+	if user.Uid != "" {
+		if cErr := um.validateUid(user.Uid); cErr != nil {
+			return cErr
+		}
+	}
+	if cErr := um.validatePassword(user.UserPassword); cErr != nil {
+		return cErr
+	}
 	if cErr := um.validateStatus(user.Status); cErr != nil {
 		return cErr
 	}
@@ -869,8 +919,9 @@ func (um *usersManager) validateStatus(status string) *errors.Error {
 
 // TODO: add check of complexity, take minimal length from config
 func (um *usersManager) validatePassword(password string) *errors.Error {
-	if len(password) < 6 {
-		return errors.BadRequestError(fmt.Sprintf(invalidPasswordErrMsg, password))
+	if len(password) < MIN_LEN_PASSWORD {
+		// Never echo the rejected password in the error message
+		return errors.BadRequestError(fmt.Sprintf(invalidPasswordErrMsg, MIN_LEN_PASSWORD))
 	}
 	return nil
 }

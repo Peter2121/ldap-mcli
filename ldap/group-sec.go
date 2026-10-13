@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/atselvan/go-utils/utils/errors"
+	"github.com/atselvan/go-utils/utils/slice"
 	"github.com/go-ldap/ldap/v3"
 	"github.com/oleiade/reflections"
 	"github.com/r3labs/diff/v3"
@@ -112,11 +113,14 @@ func (gm *groupsSecManager) GetOne(attr, aval, ou string) (*GroupSec, *errors.Er
 			}
 		}
 	*/
+	if !slice.EntryExists(gm.LdapGroupAttributes, attr) {
+		return nil, errors.BadRequestError(fmt.Sprintf(invalidFilterKeyErrMsg, attr, gm.LdapGroupAttributes))
+	}
 	var search_request_str string
 	if ou != "" {
-		search_request_str = fmt.Sprintf(SecGroupsOuSearchFilter, attr, aval, ou)
+		search_request_str = fmt.Sprintf(SecGroupsOuSearchFilter, attr, ldap.EscapeFilter(aval), ldap.EscapeFilter(ou))
 	} else {
-		search_request_str = fmt.Sprintf(SecGroupsSearchFilter, attr, aval)
+		search_request_str = fmt.Sprintf(SecGroupsSearchFilter, attr, ldap.EscapeFilter(aval))
 	}
 	ret, err := gm.GetFilteredGroups(search_request_str)
 	if err == nil && len(ret) > 0 {
@@ -265,12 +269,12 @@ func (gm *groupsSecManager) GetDN(attr, uid, ou string) string {
 	}
 	if attr == gm.Client.SecurityGroupDnAttribute {
 		if uid != "" && ou != "" {
-			return fmt.Sprintf("%s=%s,%s=%s,%s", CommonNameAttr, uid, OrganizationalUnitAttr, ou,
+			return fmt.Sprintf("%s=%s,%s=%s,%s", CommonNameAttr, ldap.EscapeDN(uid), OrganizationalUnitAttr, ldap.EscapeDN(ou),
 				gm.Client.ConfigLdap.GroupBaseDN)
 		} else if uid != "" {
-			return fmt.Sprintf("%s=%s,%s", CommonNameAttr, uid, gm.Client.ConfigLdap.GroupBaseDN)
+			return fmt.Sprintf("%s=%s,%s", CommonNameAttr, ldap.EscapeDN(uid), gm.Client.ConfigLdap.GroupBaseDN)
 		} else if ou != "" {
-			return fmt.Sprintf("%s=%s,%s", OrganizationalUnitAttr, ou, gm.Client.ConfigLdap.GroupBaseDN)
+			return fmt.Sprintf("%s=%s,%s", OrganizationalUnitAttr, ldap.EscapeDN(ou), gm.Client.ConfigLdap.GroupBaseDN)
 		} else {
 			return gm.Client.ConfigLdap.GroupBaseDN
 		}
@@ -281,12 +285,12 @@ func (gm *groupsSecManager) GetDN(attr, uid, ou string) string {
 
 // GetUniqueMemberDn returns the formatted unique member domain name
 func (gm *groupsSecManager) GetUniqueMemberDn(memberId string) string {
-	return fmt.Sprintf("%s=%s,%s", userIdAttr, memberId, gm.Client.ConfigLdap.UserBaseDN)
+	return fmt.Sprintf("%s=%s,%s", userIdAttr, ldap.EscapeDN(memberId), gm.Client.ConfigLdap.UserBaseDN)
 }
 
 // GetGroupSearchRequest returns a ldap search request to get group entries from different OUs.
 func (gm *groupsSecManager) GetGroupSearchRequest(srchAttr, srchStr string) *ldap.SearchRequest {
-	srchFilter := fmt.Sprintf(SecGroupsSearchFilter, srchAttr, srchStr)
+	srchFilter := fmt.Sprintf(SecGroupsSearchFilter, srchAttr, ldap.EscapeFilter(srchStr))
 	return &ldap.SearchRequest{
 		BaseDN:       gm.Client.ConfigLdap.GroupBaseDN,
 		Scope:        ldap.ScopeWholeSubtree,
