@@ -548,7 +548,7 @@ func (gm *groupsMailManager) ValidateGroup(group GroupMail) *errors.Error {
 	}
 	// mail may become the RDN of the group: enforce its format
 	if !isValidEmail(strings.TrimSpace(group.Mail)) {
-		return errors.BadRequestErrorf(errors.ErrMsg[errors.ErrCodeBadRequest])
+		return errors.BadRequestError(errors.ErrMsg[errors.ErrCodeBadRequest])
 	}
 	return nil
 }

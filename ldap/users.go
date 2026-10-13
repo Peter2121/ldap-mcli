@@ -791,11 +791,11 @@ func (um *usersManager) validateUid(uid string) *errors.Error {
 		return errors.BadRequestErrorf(errors.ErrMsg[errors.ErrCodeMissingMandatoryParameter], []string{userIdAttr})
 	}
 	if len(uidstr) > MAX_LEN_ID {
-		return errors.BadRequestErrorf(errors.ErrMsg[errors.ErrCodeBadRequest])
+		return errors.BadRequestError(errors.ErrMsg[errors.ErrCodeBadRequest])
 	}
 	uid_regex := regexp.MustCompile(UID_VALIDATION_REGEX)
 	if !uid_regex.MatchString(uidstr) {
-		return errors.BadRequestErrorf(errors.ErrMsg[errors.ErrCodeBadRequest])
+		return errors.BadRequestError(errors.ErrMsg[errors.ErrCodeBadRequest])
 	}
 	return nil
 }
@@ -806,10 +806,10 @@ func (um *usersManager) validateEmail(mail string) *errors.Error {
 		return errors.BadRequestErrorf(errors.ErrMsg[errors.ErrCodeMissingMandatoryParameter], []string{MailAttr})
 	}
 	if len(mailstr) > MAX_LEN_ID {
-		return errors.BadRequestErrorf(errors.ErrMsg[errors.ErrCodeBadRequest])
+		return errors.BadRequestError(errors.ErrMsg[errors.ErrCodeBadRequest])
 	}
 	if !isValidEmail(mailstr) {
-		return errors.BadRequestErrorf(errors.ErrMsg[errors.ErrCodeBadRequest])
+		return errors.BadRequestError(errors.ErrMsg[errors.ErrCodeBadRequest])
 	}
 	return nil
 }
