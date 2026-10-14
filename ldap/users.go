@@ -688,10 +688,13 @@ func (um *usersManager) ModifyUser(user, old_user User) *errors.Error {
 			switch ch.Type {
 			case diff.UPDATE:
 				is_domain_admin := ch.To.(string)
+				is_domain_admin_from := ch.From.(string)
 				if strings.ToUpper(is_domain_admin) == "YES" {
 					attrs_to_replace[domainAdminAttr] = "yes"
-				} else {
+				} else if len(is_domain_admin_from) != 0 {
 					attrs_to_delete[domainAdminAttr] = ch.From.(string)
+				} else if strings.ToUpper(is_domain_admin) == "NO" {
+					attrs_to_replace[domainAdminAttr] = "no"
 				}
 			case diff.CREATE:
 				is_domain_admin := ch.To.(string)
@@ -773,12 +776,6 @@ func (um *usersManager) ModifyUser(user, old_user User) *errors.Error {
 
 	if cErr := um.Client.doLDAPModify(req); cErr != nil {
 		return cErr
-	}
-
-	if new_password != "" {
-		if _, cErr := um.modifyPassword(MailAttr, user.Mail, "", new_password); cErr != nil {
-			return cErr
-		}
 	}
 
 	return nil
