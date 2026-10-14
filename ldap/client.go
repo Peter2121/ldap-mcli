@@ -1,7 +1,9 @@
 package ldap
 
 import (
+	"crypto/tls"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 
@@ -52,8 +54,9 @@ const (
 	SecGroupsSearchFilter   = "(&(%s=%s)(objectClass=groupOfNames))"
 	UserSearchFilter        = "(&(%s=%s)(objectClass=inetOrgPerson))"
 
-	connectionMsg        = "Connecting to the LDAP server %s..."
-	connectionSuccessMsg = "Connected to the LDAP server"
+	connectionMsg         = "Connecting to the LDAP server %s..."
+	connectionSuccessMsg  = "Connected to the LDAP server"
+	invalidCredentialsMsg = "Invalid credentials"
 )
 
 var (
@@ -69,6 +72,7 @@ type (
 		Protocol                 string   `json:"protocol" yaml:"protocol" mapstructure:"LDAP_PROTOCOL" required:"true"`
 		Hostname                 string   `json:"hostname" yaml:"hostname" mapstructure:"LDAP_HOSTNAME" required:"true"`
 		Port                     string   `json:"port" yaml:"port" mapstructure:"LDAP_PORT" required:"true"`
+		StartTLS                 bool     `json:"startTLS" yaml:"startTLS" mapstructure:"LDAP_START_TLS"` // plain ldap only: upgrade to TLS after connect
 		BaseDN                   string   `json:"baseDN" yaml:"baseDN" mapstructure:"LDAP_BASE_DN" required:"true"`
 		UserBaseDN               string   `json:"userBaseDN" yaml:"userBaseDN" mapstructure:"LDAP_USER_BASE_DN" required:"true"`
 		GroupBaseDN              string   `json:"groupBaseDN" yaml:"groupBaseDN" mapstructure:"LDAP_GROUP_BASE_DN" required:"true"`
@@ -182,35 +186,39 @@ func (c *Client) AuthenticateUser(username, password string) (*User, *errors.Err
 
 	var user *User = nil
 	var err *errors.Error = nil
-	if (len(username) > MAX_LEN_USERNAME) || (len(password) > MAX_LEN_PASSWORD) {
-		return nil, errors.BadRequestError("Invalid credentials")
+	if (len(username) > MAX_LEN_USERNAME) || (len(password) > MAX_LEN_PASSWORD) || password == "" {
+		return nil, errors.UnauthorizedError(invalidCredentialsMsg)
 	}
 	is_email_address := strings.Contains(username, "@") // TODO: do regex check with more criteria
 	if is_email_address {
 		if !email_regex.MatchString(username) {
-			return nil, errors.BadRequestError("Invalid credentials")
+			return nil, errors.UnauthorizedError(invalidCredentialsMsg)
 		}
 		user, err = c.Users.GetByEmail(username)
-		if err != nil {
-			return nil, err
-		}
 	} else {
 		if !uid_regex.MatchString(username) {
-			return nil, errors.BadRequestError("Invalid credentials")
+			return nil, errors.UnauthorizedError(invalidCredentialsMsg)
 		}
 		user, err = c.Users.GetByUid(username)
-		if err != nil {
-			return nil, err
+	}
+	if err != nil {
+		// Same answer for "unknown user" and "wrong password": no account enumeration
+		if err.Status == http.StatusNotFound {
+			return nil, errors.UnauthorizedError(invalidCredentialsMsg)
 		}
+		return nil, err
+	}
+	// accountStatus is an iRedMail attribute, not enforced by the LDAP server itself
+	if user.Status != UserStatusActive {
+		return nil, errors.UnauthorizedError(invalidCredentialsMsg)
 	}
 
-	errd := c.dial()
+	conn, errd := c.dial()
 	if errd != nil {
 		return nil, errd
 	}
-	defer c.ldapClient.Close()
-	errb := c.ldapClient.Bind(user.Dn, password)
-	if errb != nil {
+	defer conn.Close()
+	if errb := conn.Bind(user.Dn, password); errb != nil {
 		return nil, c.handleLdapError(errb)
 	}
 	return user, nil
@@ -248,8 +256,8 @@ func WithUsersManager(um UsersManager) ClientOption {
 	}
 }
 
-// UnitTesting is a client option that will skip LDAP Dial and DialTls during unit testing.
-// This function is added because it is currently not possible to mock Dial and DialTls.
+// UnitTesting is a client option that will skip the LDAP dial during unit testing: every
+// operation then runs on the ldap.Client injected with WithLDAPClient.
 func UnitTesting() ClientOption {
 	return func(c *Client) {
 		c.unitTesting = true
@@ -258,12 +266,12 @@ func UnitTesting() ClientOption {
 
 // doLDAPSearch searches for entries in LDAP.
 func (c *Client) doLDAPSearch(sr *ldap.SearchRequest) (*ldap.SearchResult, *errors.Error) {
-	cErr := c.connect()
+	conn, cErr := c.connect()
 	if cErr != nil {
 		return nil, cErr
 	}
-	defer c.ldapClient.Close()
-	result, err := c.ldapClient.Search(sr)
+	defer conn.Close()
+	result, err := conn.Search(sr)
 	if err != nil {
 		return nil, c.handleLdapError(err)
 	}
@@ -272,12 +280,12 @@ func (c *Client) doLDAPSearch(sr *ldap.SearchRequest) (*ldap.SearchResult, *erro
 
 // doLDAPAdd adds a new entry in LDAP.
 func (c *Client) doLDAPAdd(ar *ldap.AddRequest) *errors.Error {
-	cErr := c.connect()
+	conn, cErr := c.connect()
 	if cErr != nil {
 		return cErr
 	}
-	defer c.ldapClient.Close()
-	if err := c.ldapClient.Add(ar); err != nil {
+	defer conn.Close()
+	if err := conn.Add(ar); err != nil {
 		return c.handleLdapError(err)
 	}
 	return nil
@@ -285,12 +293,12 @@ func (c *Client) doLDAPAdd(ar *ldap.AddRequest) *errors.Error {
 
 // doLDAPDelete removes an existing entry in LDAP.
 func (c *Client) doLDAPDelete(dr *ldap.DelRequest) *errors.Error {
-	cErr := c.connect()
+	conn, cErr := c.connect()
 	if cErr != nil {
 		return cErr
 	}
-	defer c.ldapClient.Close()
-	if err := c.ldapClient.Del(dr); err != nil {
+	defer conn.Close()
+	if err := conn.Del(dr); err != nil {
 		return c.handleLdapError(err)
 	}
 	return nil
@@ -298,53 +306,54 @@ func (c *Client) doLDAPDelete(dr *ldap.DelRequest) *errors.Error {
 
 // doLDAPModify update an existing entry in LDAP.
 func (c *Client) doLDAPModify(mr *ldap.ModifyRequest) *errors.Error {
-	cErr := c.connect()
+	conn, cErr := c.connect()
 	if cErr != nil {
 		return cErr
 	}
-	defer c.ldapClient.Close()
-	if err := c.ldapClient.Modify(mr); err != nil {
+	defer conn.Close()
+	if err := conn.Modify(mr); err != nil {
 		return c.handleLdapError(err)
 	}
 	return nil
 }
 
-// doLDAPModify update an existing entry in LDAP.
+// doLDAPPasswordModify changes a password through the Password Modify extended operation (RFC 3062):
+// the server hashes the value itself, nothing is stored in clear.
 func (c *Client) doLDAPPasswordModify(pmr *ldap.PasswordModifyRequest) (*ldap.PasswordModifyResult, *errors.Error) {
-	cErr := c.connect()
+	conn, cErr := c.connect()
 	if cErr != nil {
 		return nil, cErr
 	}
-	defer c.ldapClient.Close()
-	result, err := c.ldapClient.PasswordModify(pmr)
+	defer conn.Close()
+	result, err := conn.PasswordModify(pmr)
 	if err != nil {
 		return nil, c.handleLdapError(err)
 	}
 	return result, nil
 }
 
-// connect validates the connection details and attempts to connect to the ldap server.
-// The method returns an error if connection to the ldap server fails.
-func (c *Client) connect() *errors.Error {
+// connect validates the connection details, opens a NEW connection and binds with the service
+// credentials. One connection per operation: the Client holds no shared connection, so concurrent
+// calls never close or reuse each other's session. The caller must Close() the returned connection.
+func (c *Client) connect() (ldap.Client, *errors.Error) {
 	if cErr := c.validate(); cErr != nil {
-		return cErr
+		return nil, cErr
 	}
 
 	ldapUrl := fmt.Sprintf(ldapUrlFormat, c.ConfigLdap.Protocol, c.ConfigLdap.Hostname, c.ConfigLdap.Port)
 	logger.Debug(fmt.Sprintf(connectionMsg, ldapUrl))
 
-	if !c.unitTesting {
-		if cErr := c.dial(); cErr != nil {
-			return cErr
-		}
+	conn, cErr := c.dial()
+	if cErr != nil {
+		return nil, cErr
 	}
-
-	if cErr := c.bind(); cErr != nil {
-		return cErr
+	if err := conn.Bind(c.ConfigLdap.BindUser, c.ConfigLdap.BindPassword); err != nil {
+		conn.Close()
+		return nil, c.handleLdapError(err)
 	}
 	logger.Debug(connectionSuccessMsg)
 
-	return nil
+	return conn, nil
 }
 
 // validate validates the ldap client configuration.
@@ -356,25 +365,25 @@ func (c *Client) validate() *errors.Error {
 }
 
 // dial creates a new connection with an LDAP server based on the client Config.
-func (c *Client) dial() *errors.Error {
-	var err error
-	if c.ConfigLdap.Protocol == "ldap" {
-		c.ldapClient, err = ldap.Dial("tcp", fmt.Sprintf("%s:%s", c.ConfigLdap.Hostname, c.ConfigLdap.Port))
-	} else {
-		c.ldapClient, err = ldap.DialTLS("tcp", fmt.Sprintf("%s:%s", c.ConfigLdap.Hostname, c.ConfigLdap.Port), nil)
+// With ldaps the server certificate is verified against the system roots. With plain ldap,
+// StartTLS upgrades the connection when ConfigLdap.StartTLS is set.
+// In unit-testing mode the injected ldap.Client is returned instead.
+func (c *Client) dial() (ldap.Client, *errors.Error) {
+	if c.unitTesting {
+		return c.ldapClient, nil
 	}
+	ldapUrl := fmt.Sprintf(ldapUrlFormat, c.ConfigLdap.Protocol, c.ConfigLdap.Hostname, c.ConfigLdap.Port)
+	conn, err := ldap.DialURL(ldapUrl)
 	if err != nil {
-		return c.handleLdapError(err)
+		return nil, c.handleLdapError(err)
 	}
-	return nil
-}
-
-// bind authenticates to an LDAP server using the bind credentials set in the client Config.
-func (c *Client) bind() *errors.Error {
-	if err := c.ldapClient.Bind(c.ConfigLdap.BindUser, c.ConfigLdap.BindPassword); err != nil {
-		return c.handleLdapError(err)
+	if c.ConfigLdap.Protocol == ProtocolLdap && c.ConfigLdap.StartTLS {
+		if err := conn.StartTLS(&tls.Config{ServerName: c.ConfigLdap.Hostname}); err != nil {
+			conn.Close()
+			return nil, c.handleLdapError(err)
+		}
 	}
-	return nil
+	return conn, nil
 }
 
 // handleLdapError validates the errors returned by the ldap client and returns the appropriate rest error.
